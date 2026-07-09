@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openadmindesk"
+version = "0.1.0"
+description = "Modern open source Linux remote administration workbench"
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "GPL-3.0-or-later"}
+authors = [
+    {name = "OpenAdminDesk Contributors"},
+]
+dependencies = [
+    "PySide6>=6.7",
+    "cryptography>=42",
+    "argon2-cffi>=23",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+openadmindesk = "openadmindesk.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
