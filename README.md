@@ -52,6 +52,13 @@ implementation work.
 - `AGENTS.md` - mandatory operating rules for coding agents.
 - `docs/PROJECT_BRIEF.md` - product definition and constraints.
 - `docs/PRODUCT_REQUIREMENTS.md` - full product capabilities and UX targets.
+- `docs/DATA_MODEL.md` - stable domain object shapes.
+- `docs/SSH_OPTIONS.md` - OpenSSH option mapping.
+- `docs/VAULT_SPEC.md` - credential vault design.
+- `docs/UI_SPEC.md` - detailed UI structure.
+- `docs/DEVELOPMENT_ENV.md` - setup and verification commands.
+- `docs/TEST_PLAN.md` - test strategy.
+- `docs/ACCEPTANCE_CRITERIA.md` - task completion rules.
 - `docs/requirements/MVP.md` - first deliverable requirements.
 - `docs/ROADMAP.md` - staged implementation plan.
 - `docs/ARCHITECTURE.md` - technical design notes.
@@ -73,4 +80,3 @@ Read AGENTS.md and docs/agent/CONTEXT_PACK.md. Then pick the next unchecked
 task from docs/ROADMAP.md. Make a small change, update docs/WORKLOG.md, and
 run the relevant verification command.
 ```
-

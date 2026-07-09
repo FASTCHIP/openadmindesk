@@ -12,6 +12,7 @@ They are optimized for simple LLMs with limited planning ability.
 5. Make small changes. Do not rewrite large areas unless a task explicitly asks.
 6. After each change, run the smallest useful verification.
 7. Update `docs/WORKLOG.md` with what changed and how it was checked.
+8. Check `docs/ACCEPTANCE_CRITERIA.md` before reporting completion.
 
 ## Project Goal
 
@@ -31,6 +32,7 @@ this repository.
 ## Engineering Rules
 
 - Prefer simple, boring, maintainable code.
+- Follow `docs/IMPLEMENTATION_RULES.md`.
 - Keep files small and focused.
 - Keep UI code separated from SSH/SFTP/vault logic.
 - Build command invocations with argument lists, never shell strings.
@@ -85,4 +87,4 @@ A task is done only when:
 - `docs/WORKLOG.md` was updated.
 - Any new follow-up work was added to `docs/ROADMAP.md` or the current task
   file.
-
+- Relevant acceptance criteria were checked.

@@ -6,6 +6,26 @@ Use this file as the chronological project journal. New entries go at the top.
 
 Plan:
 
+- Add the second layer of project guidance needed for reliable agent
+  implementation.
+- Define data models, SSH option mapping, UI structure, vault behavior,
+  development setup, tests, and acceptance criteria.
+
+Changes:
+
+- Added implementation rules, feature matrix, UI spec, data model, SSH option
+  mapping, vault spec, development environment, test plan, and acceptance
+  criteria.
+- Linked these documents from README, AGENTS, agent context, and roadmap.
+
+Verification:
+
+- Pending: sync these documents to `/ai/openadmindesk` and run the smoke check.
+
+## 2026-07-09
+
+Plan:
+
 - Create a clean `/ai/openadmindesk` project workspace on the server.
 - Preserve the user's product goal: modern MobaXterm-like convenience for
   Linux, without copying proprietary assets or implementation.

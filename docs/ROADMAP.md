@@ -9,6 +9,7 @@ different priority.
 - [x] Define product brief, MVP, architecture, worklog, and task template.
 - [x] Choose initial project name: OpenAdminDesk.
 - [x] Initialize git in `/ai/openadmindesk`.
+- [x] Add detailed agent implementation specs.
 - [ ] Add full GPLv3-or-later license text.
 - [ ] Add code of conduct and contribution guide.
 

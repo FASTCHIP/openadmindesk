@@ -25,10 +25,18 @@ Follow `docs/ROADMAP.md`. The next unfinished phase is the current priority.
 
 - Product: `docs/PROJECT_BRIEF.md`
 - Product requirements: `docs/PRODUCT_REQUIREMENTS.md`
+- Implementation rules: `docs/IMPLEMENTATION_RULES.md`
+- Data model: `docs/DATA_MODEL.md`
+- SSH options: `docs/SSH_OPTIONS.md`
+- Vault spec: `docs/VAULT_SPEC.md`
+- UI spec: `docs/UI_SPEC.md`
 - MVP: `docs/requirements/MVP.md`
 - Architecture: `docs/ARCHITECTURE.md`
 - UI/UX: `docs/UI_UX.md`
 - Security: `docs/SECURITY_MODEL.md`
+- Development environment: `docs/DEVELOPMENT_ENV.md`
+- Test plan: `docs/TEST_PLAN.md`
+- Acceptance criteria: `docs/ACCEPTANCE_CRITERIA.md`
 - Roadmap: `docs/ROADMAP.md`
 - Work journal: `docs/WORKLOG.md`
 - Task format: `docs/agent/TASK_TEMPLATE.md`
@@ -41,6 +49,7 @@ Follow `docs/ROADMAP.md`. The next unfinished phase is the current priority.
 4. Edit only the files needed for that task.
 5. Run the smallest useful check.
 6. Update `docs/WORKLOG.md`.
+7. Check `docs/ACCEPTANCE_CRITERIA.md`.
 
 ## Current Stack Choice
 
@@ -50,4 +59,3 @@ Follow `docs/ROADMAP.md`. The next unfinished phase is the current priority.
 - SQLite profile metadata
 - Encrypted credential vault with master password
 - AppImage first, then deb/rpm
-
