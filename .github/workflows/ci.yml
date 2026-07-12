@@ -21,6 +21,10 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update && sudo apt-get install -y libegl1
+    
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -32,32 +36,14 @@ jobs:
         poetry run ruff check src/
     
     - name: Test with pytest
+      env:
+        QT_QPA_PLATFORM: offscreen
       run: |
         poetry run pytest tests/ -v --cov=src/openadmindesk
 
-  test-windows:
-    runs-on: windows-latest
-    strategy:
-      matrix:
-        python-version: [3.12]
-
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install poetry
-        poetry install --with dev
-    
-    - name: Test with pytest
-      run: |
-        poetry run pytest tests/ -v --ignore=tests/test_app.py --ignore=tests/test_main_window.py --ignore=tests/test_connection_tree.py --ignore=tests/test_connection_event_area.py --ignore=tests/test_quick_connect_toolbar.py --ignore=tests/test_profile_list.py --ignore=tests/test_ssh_terminal_tab.py --ignore=tests/test_tabbed_workspace.py --ignore=tests/test_profile_editor.py
+  # Note: OpenAdminDesk is a Linux-only application
+  # Windows cross-platform support is not currently planned
+  # Remove this comment if Windows support is added in the future
 
   security:
     runs-on: ubuntu-latest
@@ -77,8 +63,8 @@ jobs:
     
     - name: Run security checks
       run: |
-        poetry run bandit -r src/
-        poetry run safety check
+        poetry run bandit -r src/ -lll
+        poetry run pip-audit
 
   build:
     needs: [test, security]

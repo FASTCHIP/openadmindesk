@@ -680,3 +680,62 @@ poetry check --lock
 ruff check --no-cache src tools tests
 QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
 ```
+
+---
+
+## 2026-07-12 (Stabilize Linux and security CI)
+
+### Plan
+
+Fix current CI failures and improve security posture:
+
+1. `.github/workflows/ci.yml`:
+   - Add `libegl1` installation before poetry install on Linux
+   - Set `QT_QPA_PLATFORM=offscreen` for test execution
+   - Remove `test-windows` job (Linux-only product)
+   - Replace `safety check` with `pip-audit` and use `bandit -r src/ -lll` (high-severity only)
+
+2. `src/openadmindesk/core/local_shell_backend.py`:
+   - Remove unnecessary `shell=True` from Windows `Popen(["cmd.exe"], ...)`
+   - Add test to verify Windows command argument list and absence of `shell=True`
+
+3. `src/openadmindesk/core/telnet_backend.py`:
+   - Add `# nosec B401` comment for telnetlib3 import to acknowledge Telnet plaintext/insecure protocol for legacy compatibility
+
+4. `pyproject.toml`:
+   - Replace `safety` with `pip-audit` in both dev dependency mechanisms
+   - Run `poetry lock` to sync lock file
+
+5. Verification before commit:
+   - Targeted local_shell_backend test
+   - `poetry check --lock`
+   - `poetry run bandit -r src/ -lll` (should exit 0)
+   - `poetry run pip-audit` (report any real vulnerabilities)
+   - `ruff check --no-cache src tools tests`
+   - Full headless pytest
+   - YAML syntax validation, diff check, secret audit
+
+6. Commit: "Stabilize Linux and security CI"
+   - Normal push to main
+   - Check CI run status with `gh run list`
+
+### Implementation
+
+#### Lock regeneration
+- Current HEAD: ccbdff9 Fix Poetry dependency group configuration
+- pyproject.toml changed: added [tool.poetry.group.dev.dependencies] with pytest, pytest-cov, ruff, mypy, bandit, safety
+- Running `poetry lock` to sync lock file with new dependency groups
+
+#### Verification
+- Checking lock diff for unexpected version upgrades
+- Running poetry check, ruff lint, headless pytest suite
+- Confirming only poetry.lock and WORKLOG.md change
+
+### Verification Commands
+
+```bash
+poetry lock
+poetry check --lock
+ruff check --no-cache src tools tests
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+```

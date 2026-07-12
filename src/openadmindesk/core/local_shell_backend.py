@@ -72,7 +72,6 @@ class LocalShellBackend:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            shell=True,
         )
         self._connected = True
 
