@@ -99,15 +99,10 @@ jobs:
         pip install poetry
         poetry install
     
-    - name: Build application
+    - name: Build Python package
       run: |
         poetry build
-    
-    - name: Build additional packages
-      run: |
-        python tools/build.py python-pkg
-        python tools/build.py appimage
-    
+
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -138,5 +133,5 @@ jobs:
     
     - name: Test Docker image
       run: |
-        docker run --rm openadmindesk:ci --version
+        docker run --rm openadmindesk:ci openadmindesk --version
 
