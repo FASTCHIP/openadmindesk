@@ -3,117 +3,77 @@
 This document defines the first stable domain objects. Field names should stay
 boring and explicit so agents do not invent incompatible variants.
 
-## ConnectionProfile
+## Profile
 
 ```text
-id: string
 name: string
-folder_id: string | null
-protocol: "ssh"
 host: string
 port: int
 username: string | null
-account_id: string | null
-identity_file: string | null
-working_directory: string | null
-notes: string
-tags: list[string]
-ssh_options: SshOptions
-tunnels: list[TunnelProfile]
-x11: X11Profile
-created_at: datetime
-updated_at: datetime
-```
-
-## Folder
-
-```text
-id: string
-parent_id: string | null
-name: string
-sort_order: int
-created_at: datetime
-updated_at: datetime
-```
-
-## Account
-
-```text
-id: string
-display_name: string
-username: string | null
-secret_refs: AccountSecretRefs
-notes: string
-tags: list[string]
-created_at: datetime
-updated_at: datetime
-```
-
-Secrets are referenced by ID and stored in the vault, not plaintext database
-columns.
-
-## AccountSecretRefs
-
-```text
-password_ref: string | null
-key_passphrase_ref: string | null
-```
-
-## SshOptions
-
-```text
-proxy_jump: string | null
-proxy_command: string | null
-forward_agent: bool
+credential_id: string | null
+private_key_path: string | null
+use_ssh_agent: bool
 compression: bool
-server_alive_interval: int | null
-server_alive_count_max: int | null
-strict_host_key_checking: "default" | "yes" | "accept-new" | "no"
+keep_alive: bool
+ssh_config: string | null
+proxy_command: string | null
+created_at: string | null
+updated_at: string | null
 ```
 
-Use `"no"` only when the user explicitly chooses insecure behavior.
+### Validation Rules
 
-## TunnelProfile
+- `name` and `host` are required
+- `port` must be between 1 and 65535
+- `host` must be a valid IPv4 address, IPv6 address, or hostname
+- `private_key_path` must be a valid file path if provided
+- `ssh_config` must be a valid SSH configuration string if provided
 
-```text
-id: string
-name: string
-kind: "local" | "remote" | "dynamic"
-bind_host: string
-bind_port: int
-target_host: string | null
-target_port: int | null
-enabled: bool
-```
+### Host Validation
 
-Dynamic SOCKS tunnels do not use `target_host` or `target_port`.
+The following formats are supported for `host`:
 
-## X11Profile
+- **IPv4**: `192.168.1.1`
+- **IPv6**: `2001:db8::1`
+- **Hostname**: `example.com` or `sub.example.com`
 
-```text
-mode: "disabled" | "untrusted" | "trusted"
-remote_command: string | null
-```
+### Authentication Methods
 
-`untrusted` maps to `ssh -X`. `trusted` maps to `ssh -Y`.
+Profile rows store connection metadata only. Plaintext credentials must not be
+written to `profiles` rows or plain JSON/CSV exports.
 
-## Snippet
+1. **Vault account**: Set `credential_id` and resolve secrets through the vault.
+2. **Private key path**: Set `private_key_path`; the file path is metadata, not
+   private key content.
+3. **SSH agent**: Set `use_ssh_agent = true`.
+4. **Combined**: Can use vault credentials + private key path + SSH agent.
 
-```text
-id: string
-name: string
-body: string
-tags: list[string]
-created_at: datetime
-updated_at: datetime
-```
+### Security Validation
 
-## RecentSession
+All input fields are validated to prevent command injection:
 
-```text
-id: string
-profile_id: string
-opened_at: datetime
-last_status: "connected" | "closed" | "failed"
-```
+- **Hostname**: Must be valid IPv4, IPv6 address, or hostname
+- **Username**: Must not contain shell metacharacters
+- **Port**: Must be between 1 and 65535
+- **Commands**: Sent through SSH are sanitized to prevent injection
 
+### Input Sanitization
+
+The following dangerous characters are removed from inputs:
+- Shell metacharacters: `;&|`$(){}<>`
+- Control characters (except tab and newline)
+
+### SSH Configuration
+
+The `ssh_config` field can contain additional SSH configuration options
+that will be applied to the connection. This should follow standard SSH
+config file format.
+
+### Proxy Support
+
+The `proxy_command` field can be used to specify a proxy command for
+connecting through a proxy server.
+
+## RDP Gateway Credentials
+
+Profiles may reference two vault accounts: `credential_id` for the primary session login and `rdp_gateway_credential_id` for TS Gateway authentication. The gateway account uses `service_type="rdp-gateway"` and stores the gateway username/password in the encrypted vault. Profile rows keep gateway host/user metadata and always clear `rdp_gateway_password` before persistence/export.

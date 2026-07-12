@@ -1,2 +1,1 @@
-"""Qt UI package for OpenAdminDesk."""
-
+"""UI components for OpenAdminDesk."""

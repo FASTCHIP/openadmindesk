@@ -12,8 +12,9 @@ secrets management.
 - Connection tree: folders, search, profile actions.
 - Profile store: validate, save, import, export.
 - Credential vault: master password, account records, encrypted secrets.
-- SSH runner: starts system `ssh` with safe argument lists.
-- SFTP runner: lists and transfers files through system tools or a library.
+- SSH terminal backend: Paramiko channel wrapped by `SSHTerminalBackend`.
+- Terminal renderer: custom `pyte` screen rendered by Qt `TerminalWidget`.
+- SFTP backend: Paramiko SFTP client with explicit TOFU host-key policy.
 - Tunnel manager: starts and tracks SSH port-forwarding subprocesses.
 - X11 manager: detects local X support and launches remote GUI commands.
 - Snippet store: local reusable command snippets.
@@ -86,17 +87,20 @@ subprocess.Popen(f"ssh -p {port} {user}@{host}", shell=True)
 
 ## Terminal Embedding Strategy
 
-Start with an interface:
+Current decision: Paramiko/pyte-first for the stabilization prototype.
 
 ```text
-TerminalBackend.open_session(profile) -> TerminalSession
+backend = SSHTerminalBackend(profile)
+backend.connect(on_output=terminal.feed)
 ```
 
-Then implement one backend at a time. Candidate order:
+`TerminalBackend` instances are profile-bound. The UI should not pass host, port,
+or credentials into `connect()`; those belong in `Profile` plus vault-backed
+credential references.
 
-1. VTE-based widget on Linux.
-2. PTY-based fallback.
-3. External terminal fallback for early smoke tests.
+Known gaps for the pyte renderer must be tracked with focused tests before
+claiming broad terminal compatibility: alternate screen behavior, mouse reporting,
+bracketed paste, truecolor, resize edge cases, and large scrollback performance.
 
 ## X11 Forwarding Strategy
 

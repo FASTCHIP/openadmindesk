@@ -27,6 +27,9 @@ dist/
 Thumbs.db
 .DS_Store
 
+# OpenCode configuration (local only)
+opencode.json
+
 # Local secrets and runtime state
 .env
 .env.*
@@ -37,3 +40,29 @@ profiles.local.*
 runtime/
 logs/
 
+# OpenAdminDesk runtime state
+profiles.db
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+vault.json
+sync_config.json
+openadmindesk_sync.oad
+*.oad
+
+# Generated Python/package metadata
+src/*.egg-info/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local cleanup backups
+.cleanup_backup/
+
+# Packaging build outputs
+AppDir/
+*.AppImage
+*.rpm
+*.deb

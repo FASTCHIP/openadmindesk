@@ -1,72 +1,62 @@
 # OpenAdminDesk
 
-OpenAdminDesk is a modern open source remote administration workbench for Linux
-desktops.
+OpenAdminDesk is an original open source remote administration workbench. The
+project aims to provide the everyday convenience administrators expect from a
+connection manager: a connection tree, tabbed terminals, SSH/SFTP workflows,
+credential management, tunnels, and remote GUI helpers.
 
-The goal is to provide the same level of everyday convenience that experienced
-administrators expect from mature remote terminal suites: a connection tree,
-tabbed terminals, SSH and SFTP workflows, credential management, port
-forwarding, and remote graphical application forwarding. OpenAdminDesk must be
-an original product, not a clone of any proprietary application.
+## Current Status
 
-## Product Direction
+This repository is in prototype/stabilization state. It already contains many
+features, but the current priority is not more feature work. The next work should
+stabilize repository hygiene, tests, secret handling, Qt threading, and the
+terminal/SSH architecture.
 
-- Native Linux desktop application for Ubuntu, Debian, Fedora, Rocky Linux,
-  AlmaLinux, and other RHEL-like systems.
-- Modern scalable GUI with a connection tree, tabs, split panes, toolbars,
-  status indicators, and keyboard shortcuts.
-- First-class SSH profiles with important OpenSSH options exposed through a
-  friendly interface.
-- SFTP file manager integrated with the active SSH session.
-- Credential and account manager protected by a master password.
-- SSH tunnels and X11 forwarding for remote graphical applications.
-- Packaging for AppImage first, then `.deb` and `.rpm`.
+Authoritative stabilization plan:
+
+- `docs/AUDIT_REMEDIATION_PLAN.md`
+
+Do not rely on removed or archived audit notes. If documentation and code
+disagree, inspect the code and update the docs.
 
 ## Legal Boundary
 
 The project may be inspired by common remote administration workflows, but it
 must not copy proprietary code, icons, screenshots, text, branding, color
-identity, or pixel-perfect layouts.
+identity, exact layouts, binaries, or trade dress.
 
-Reference materials can be used only to understand user workflows at a high
-level. Do not import, unpack, or reverse engineer proprietary binaries during
+Reference materials may be used only to understand workflows at a high level. Do
+not import, unpack, reverse engineer, or copy from proprietary binaries during
 implementation work.
 
-## Proposed Stack
+## Stack
 
 - Language: Python 3.12+
 - UI: PySide6 / Qt 6
-- Terminal: libvte/PTY backend where available, with an abstraction for fallback
-  implementations.
-- SSH: OpenSSH command-line client first, wrapped safely with argument lists.
-- SFTP: OpenSSH `sftp` first for MVP; async library integration can be evaluated
-  after workflows are stable.
-- Credentials: local encrypted vault, master password, Argon2id KDF,
-  AES-256-GCM encryption.
-- Storage: SQLite for profiles and metadata; encrypted secret blobs for
-  credentials.
-- Packaging: AppImage first, then Debian and RPM packages.
+- Current terminal prototype: `pyte` rendered by a Qt widget
+- Current SSH/SFTP prototype: Paramiko-based modules
+- Target direction under review: system OpenSSH/VTE-first for Linux compatibility
+- Storage: SQLite for profile metadata
+- Secrets: encrypted vault, with plaintext profile secrets to be removed during stabilization
+- Packaging target: AppImage first, then `.deb` and `.rpm`
 
 ## Repository Map
 
 - `AGENTS.md` - mandatory operating rules for coding agents.
+- `docs/AUDIT_REMEDIATION_PLAN.md` - current audit findings and decomposed fix plan.
 - `docs/PROJECT_BRIEF.md` - product definition and constraints.
-- `docs/PRODUCT_REQUIREMENTS.md` - full product capabilities and UX targets.
-- `docs/DATA_MODEL.md` - stable domain object shapes.
-- `docs/SSH_OPTIONS.md` - OpenSSH option mapping.
-- `docs/VAULT_SPEC.md` - credential vault design.
-- `docs/UI_SPEC.md` - detailed UI structure.
+- `docs/PRODUCT_REQUIREMENTS.md` - desired capabilities and UX targets.
+- `docs/ARCHITECTURE.md` - architecture direction; verify against code before acting.
+- `docs/DATA_MODEL.md` - domain object shapes.
+- `docs/SECURITY_MODEL.md` - credential and secret-handling model.
+- `docs/VAULT_SPEC.md` - vault design notes.
+- `docs/UI_SPEC.md` and `docs/UI_UX.md` - UI structure and principles.
 - `docs/DEVELOPMENT_ENV.md` - setup and verification commands.
 - `docs/TEST_PLAN.md` - test strategy.
 - `docs/ACCEPTANCE_CRITERIA.md` - task completion rules.
-- `docs/requirements/MVP.md` - first deliverable requirements.
-- `docs/ROADMAP.md` - staged implementation plan.
-- `docs/ARCHITECTURE.md` - technical design notes.
-- `docs/UI_UX.md` - interface principles and screen layout.
-- `docs/SECURITY_MODEL.md` - credential and secret-handling design.
-- `docs/agent/` - compact context and task templates for small models.
+- `docs/ROADMAP.md` - high-level product roadmap.
 - `docs/WORKLOG.md` - chronological work log.
-- `docs/DECISIONS.md` - architecture decision records.
+- `docs/agent/` - compact context and templates for small agents.
 - `src/` - application source code.
 - `tests/` - automated tests.
 - `tools/` - developer scripts.
@@ -76,7 +66,20 @@ implementation work.
 When a new agent starts, give it this instruction:
 
 ```text
-Read AGENTS.md and docs/agent/CONTEXT_PACK.md. Then pick the next unchecked
-task from docs/ROADMAP.md. Make a small change, update docs/WORKLOG.md, and
-run the relevant verification command.
+Read AGENTS.md, docs/agent/CONTEXT_PACK.md, and docs/AUDIT_REMEDIATION_PLAN.md.
+Pick the first unchecked task from the active stabilization phase. Make one small
+change, update docs/WORKLOG.md, and run the smallest relevant verification.
 ```
+
+## Quick Verification
+
+The current baseline is known to be broken. Start with targeted checks, not a
+large refactor:
+
+```bash
+ruff check src tests tools
+pytest -q
+```
+
+If either fails, record the exact failure in `docs/WORKLOG.md` and fix one
+failure class at a time.

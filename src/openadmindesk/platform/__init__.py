@@ -1,2 +1,1 @@
-"""Platform detection and dependency checks."""
-
+"""Platform-specific functionality for OpenAdminDesk."""

@@ -1,0 +1,2 @@
+include packaging/linux/openadmindesk.desktop
+include packaging/linux/openadmindesk.svg

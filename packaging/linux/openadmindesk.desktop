@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=OpenAdminDesk
+GenericName=Remote Administration Workbench
+Comment=SSH, SFTP, tunnels, vault, and remote desktop sessions
+Exec=openadmindesk
+Icon=openadmindesk
+Terminal=false
+Type=Application
+Categories=System;Network;RemoteAccess;
+Keywords=ssh;sftp;rdp;vnc;tunnel;terminal;admin;
+StartupNotify=true

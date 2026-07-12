@@ -1,15 +1,17 @@
-# Tests Directory
+# Tests
 
-Automated tests live here.
+This directory contains unit tests for the OpenAdminDesk application.
 
-Initial focus:
+## Running Tests
 
-- profile validation,
-- profile load/save,
-- SSH command argument construction,
-- tunnel command argument construction,
-- vault cryptography behavior.
+To run tests, use:
 
-Avoid tests that require real external servers unless they are explicitly marked
-as integration tests.
+```bash
+python -m pytest tests/ -v
+```
+
+## Test Structure
+
+- `test_app.py`: Tests for the application entrypoint
+- `test_main_window.py`: Tests for the main window
 

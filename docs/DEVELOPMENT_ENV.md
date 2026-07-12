@@ -34,6 +34,28 @@ Before the virtual environment exists, this smoke check should work:
 PYTHONPATH=src python3 -m openadmindesk.app
 ```
 
+## Running the Application
+
+Three ways to launch OpenAdminDesk:
+
+### 1. Via installed package (recommended after setup)
+```bash
+source .venv/bin/activate
+openadmindesk
+```
+
+### 2. Via module (development, no install needed)
+```bash
+PYTHONPATH=src python3 -m openadmindesk.app
+```
+
+### 3. Via run.py wrapper
+```bash
+python3 run.py
+```
+
+All three methods use `openadmindesk.app:main` as the entry point.
+
 ## Ubuntu System Dependencies
 
 Initial expected packages:

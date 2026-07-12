@@ -7,7 +7,7 @@ name = "openadmindesk"
 version = "0.1.0"
 description = "Modern open source Linux remote administration workbench"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 license = {text = "GPL-3.0-or-later"}
 authors = [
     {name = "OpenAdminDesk Contributors"},
@@ -16,12 +16,19 @@ dependencies = [
     "PySide6>=6.7",
     "cryptography>=42",
     "argon2-cffi>=23",
+    "paramiko>=3.4",
+    "pyte>=0.8.2",
+    "telnetlib3>=4.0",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "pytest-cov>=5",
     "ruff>=0.5",
+    "mypy>=1.8",
+    "bandit>=1.7",
+    "safety>=2.3",
 ]
 
 [project.scripts]
@@ -33,4 +40,11 @@ where = ["src"]
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+[tool.setuptools.package-data]
+openadmindesk = ["locale/*.json"]
 
+
+[tool.pytest.ini_options]
+markers = [
+    "qt: tests that construct Qt widgets and require QApplication",
+]
