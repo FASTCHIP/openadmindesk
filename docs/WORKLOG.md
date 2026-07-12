@@ -1075,10 +1075,59 @@ git grep --cached -E "(password|secret|token|key)" | grep -v "\.md:" | wc -l
 
 ### Follow-up Actions
 
-- Do not commit/push until verification passes
 - Do not claim hardcoded test as complete in final report
 
-### Verification Pending
+---
 
-- All checks must pass before commit
-- CI run ID will be provided after push
+## 2026-07-12 (Docker DBus runtime fix + portable hygiene + redundant test removal)
+
+### Plan
+
+Atomic fixes:
+1. Add confirmed Debian package `libdbus-1-3` to Dockerfile runtime dependencies (fixes run 29212217439)
+2. Add `/.portable` to .gitignore near local/runtime files
+3. Delete untracked empty `.portable` file
+4. Remove redundant `test_version_without_qt_imports` from tests/test_app.py (lines 66+), keeping first 3 tests
+5. Append WORKLOG plan note
+
+### Implementation
+
+#### 1. Dockerfile runtime dependency
+- Added `libdbus-1-3` to runtime stage system dependencies
+- Confirmed via CI error message
+
+#### 2. Git ignore for portable marker
+- Added `/.portable` to .gitignore
+- Placed near other local/runtime files
+
+#### 3. Cleanup untracked file
+- Removed `.portable` file
+
+#### 4. Test cleanup
+- Removed redundant `test_version_without_qt_imports` test
+- Test was redundant with prior `test_main_version_prints_without_qt`
+- Removed hardcoded version "0.1.0" assertion
+
+#### 5. WORKLOG update
+- Added short accurate plan note
+
+### Verification
+
+```bash
+test_app: 3 passed
+full pytest: 285 passed
+ruff all checks passed
+bandit high no issues
+pip-audit no known vulnerabilities
+git diff --check clean after deleting blank EOF
+.portable ignored/deleted
+```
+
+### Known Limitations
+
+- Docker daemon unavailable; actual Docker/Qt smoke pending GitHub CI
+
+### Follow-up Actions
+
+- Monitor GitHub CI for Docker runtime issues
+- Run local Docker smoke test when daemon available

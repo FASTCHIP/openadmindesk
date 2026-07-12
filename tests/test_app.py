@@ -61,13 +61,3 @@ def test_main_version_prints_without_qt(capsys) -> None:
 
     assert "OpenAdminDesk 1.2.3" in capsys.readouterr().out
     mock_load_deps.assert_not_called()
-
-
-def test_version_without_qt_imports() -> None:
-    """--version should work without importing PySide6 or UI modules."""
-    import openadmindesk.app
-
-    # Test the version function directly
-    version = openadmindesk.app._version()
-    assert isinstance(version, str)
-    assert version == "0.1.0"  # Expected fallback version

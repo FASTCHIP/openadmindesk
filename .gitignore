@@ -40,7 +40,7 @@ profiles.local.*
 runtime/
 logs/
 
-# OpenAdminDesk runtime state
+ # OpenAdminDesk runtime state
 profiles.db
 data/*.db
 data/*.sqlite
@@ -49,6 +49,7 @@ vault.json
 sync_config.json
 openadmindesk_sync.oad
 *.oad
+/.portable
 
 # Generated Python/package metadata
 src/*.egg-info/

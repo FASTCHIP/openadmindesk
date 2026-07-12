@@ -30,15 +30,16 @@ RUN poetry install --only=main --no-root
 FROM python:3.12-slim
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    openssh-client \
-    net-tools \
-    libegl1 \
-    libgl1 \
-    libxkbcommon0 \
-    libfontconfig1 \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+    RUN apt-get update && apt-get install -y \
+        openssh-client \
+        net-tools \
+        libegl1 \
+        libgl1 \
+        libxkbcommon0 \
+        libfontconfig1 \
+        libglib2.0-0 \
+        libdbus-1-3 \
+        && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
