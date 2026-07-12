@@ -868,3 +868,53 @@ docker run --rm openadmindesk:ci sh -c "which openadmindesk && openadmindesk --v
 - Files changed: .dockerignore, Dockerfile, docs/WORKLOG.md
 - Pushed to main
 - CI run ID: pending
+
+---
+
+## 2026-07-12 (Complete Docker Qt runtime dependencies)
+
+### Plan
+
+Fix Docker runtime dependency issue causing `ImportError: libxkbcommon.so.0: cannot open shared object file` in CI run 29210753930.
+
+### Implementation
+
+#### 1. Dockerfile fixes
+- Added `libxkbcommon0` Debian runtime package to production stage system dependencies
+- Fixed leading space in first line comment (hygeine)
+
+#### 2. .dockerignore cleanup
+- Removed commented-out `poetry.lock` line and strange leading space
+- Kept poetry.lock explicitly included (not excluded) for Docker build context
+
+#### 3. Verification (local, no Docker daemon)
+- `ruff check --no-cache src tools tests`: All checks passed
+- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider`: 285 tests passed
+- `git diff --check`: No whitespace issues
+- Module import successful
+- Version check successful: 0.1.0
+
+### Files Changed
+
+- `Dockerfile`: Added libxkbcommon0, removed leading space
+- `.dockerignore`: Removed commented poetry.lock section
+- `docs/WORKLOG.md`: Added this entry
+
+### Known Limitations
+
+- Docker daemon not available for local smoke test
+- Smoke test success cannot be confirmed locally
+- libxkbcommon0 added based on error message and PySide6 requirements
+
+### Follow-up Actions
+
+- Push to main and verify CI run completes successfully
+- Monitor for any remaining Qt library import errors in CI
+- Consider adding ldd-based dependency verification to Docker build if needed
+
+### Commit Details
+
+- Message: Complete Docker Qt runtime dependencies
+- Files changed: Dockerfile, .dockerignore, docs/WORKLOG.md
+- Pushed to main
+- CI run ID: pending

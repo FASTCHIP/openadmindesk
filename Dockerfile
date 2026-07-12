@@ -1,4 +1,4 @@
- # Multi-stage build for OpenAdminDesk
+# Multi-stage build for OpenAdminDesk
 FROM python:3.12-slim AS builder
 
 # Set environment variables
@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     libegl1 \
     libgl1 \
+    libxkbcommon0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables

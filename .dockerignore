@@ -58,7 +58,6 @@ htmlcov/
 *.tmp
 *.temp
 
- # Poetry
 # poetry.lock
 
 # Documentation
