@@ -13,12 +13,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QLineEdit,
 )
-from PySide6.QtCore import QSize
-try:
-    from PySide6.QtGui import QAction  # PySide6 >= 6.11  # noqa: F401
-except ImportError:
-    pass  # PySide6 < 6.11 — QAction was in QtWidgets
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from typing import Optional, Callable
 
 from openadmindesk.core.profile_store import ProfileStore, Folder

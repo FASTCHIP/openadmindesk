@@ -339,21 +339,21 @@ python3 -m pytest -q         # 258 passed
 
 ### Tests
 
-- 	ests/test_sftp_file_browser.py
+- 	tests/test_sftp_file_browser.py
   - Added coverage for compact dark SFTP table rows, permission formatting, readable timestamps, and ASCII markers.
 
-- 	ests/test_settings.py
+- 	tests/test_settings.py
   - Updated settings dialog coverage to require a real non-editable font dropdown with multiple choices.
 
-- 	ests/test_ssh_terminal_tab.py
+- 	tests/test_ssh_terminal_tab.py
   - Added coverage that successful connect focuses the terminal and sends a prompt-wake Enter.
 
 ### Verification
 
-`ash
+```bash
 python3 -m ruff check src tools tests   # All checks passed!
 python3 -m pytest -q                    # 273 passed
-`
+```
 
 ---
 
@@ -385,21 +385,21 @@ python3 -m pytest -q                    # 273 passed
 
 ### Tests
 
-- 	ests/test_profile.py
+- 	tests/test_profile.py
   - Added icon_id persistence coverage and ASCII fallback coverage.
 
-- 	ests/test_profile_editor.py
+- 	tests/test_profile_editor.py
   - Added coverage for exposing and saving selected session icons.
 
-- 	ests/test_tabbed_workspace.py
+- 	tests/test_tabbed_workspace.py
   - Added coverage for non-null tab icons and visible close button behavior.
 
 ### Verification
 
-`ash
+```bash
 python3 -m ruff check src tools tests   # All checks passed!
 python3 -m pytest -q                    # 276 passed
-`
+```
 
 ---
 
@@ -432,10 +432,10 @@ python3 -m pytest -q                    # 276 passed
 
 ### Verification
 
-`bash
+```bash
 python3 -m ruff check src tools tests   # All checks passed!
 python3 -m pytest -q                    # 280 passed
-`
+```
 
 ---
 
@@ -916,5 +916,88 @@ Fix Docker runtime dependency issue causing `ImportError: libxkbcommon.so.0: can
 
 - Message: Complete Docker Qt runtime dependencies
 - Files changed: Dockerfile, .dockerignore, docs/WORKLOG.md
+- Pushed to main
+- CI run ID: pending
+
+---
+
+## 2026-07-12 (Fix run 29211056114 and reviewer polish)
+
+### Plan
+
+This entry marks the work to fix confirmed issues from run 29211056114 and reviewer feedback:
+
+1. **Dockerfile**: Add confirmed Debian package `libfontconfig1` for `ImportError: libfontconfig.so.1`
+2. **connection_tree.py**: Remove dead QAction try/except import block (not used in file)
+3. **quick_connect_toolbar.py**: Remove dead QAction try/except import block (not used in file)
+4. **`.dockerignore`**: Remove commented `# poetry.lock` and empty Poetry section to match WORKLOG claim
+5. **WORKLOG.md**: Fix damaged markdown control characters (`ash`/`ests`) in early entries; add follow-up for fontconfig and reviewer polish
+6. Verification: grep for QAction absence, full ruff, headless pytest, bandit high, pip-audit, diff check, secret audit
+7. Commit: "Fix Docker fontconfig runtime dependency"
+8. Push to main, get new CI run ID
+
+### Implementation
+
+#### 1. Dockerfile fontconfig dependency
+- Added `libfontconfig1` to runtime stage system dependencies
+- Package confirmed via ImportError message in CI
+
+#### 2. Remove dead QAction imports
+- Removed try/except blocks importing QAction from PySide6.QtGui
+- Verified QAction not used in these files via grep
+- No behavior change
+
+#### 3. .dockerignore cleanup
+- Removed commented section with `# poetry.lock`
+- Kept poetry.lock explicitly included (not excluded) for Docker build context
+
+#### 4. WORKLOG.md fixes
+- Fixed `ash` → `bash` and `ests` → `tests` in earlier entries
+- Minimal changes to preserve formatting
+- Added follow-up section for this task
+
+### Verification Commands
+
+```bash
+# Grep verification
+rg 'from PySide6.QtGui import QAction' src/openadmindesk/ui/ --type py
+
+# Lint and security
+ruff check --no-cache src tools tests
+poetry run bandit -r src/ -lll
+poetry run pip-audit
+
+# Tests
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+
+# Git hygiene
+git diff --check
+git grep --cached -E "(password|secret|token|key)" | grep -v "\.md:" | wc -l
+```
+
+### Files Changed
+
+- `Dockerfile`: Added libfontconfig1
+- `src/openadmindesk/ui/connection_tree.py`: Removed QAction import block
+- `src/openadmindesk/ui/quick_connect_toolbar.py`: Removed QAction import block
+- `.dockerignore`: Removed commented poetry.lock section
+- `docs/WORKLOG.md`: Fixed markdown issues, added entry
+
+### Known Limitations
+
+- Docker daemon not available for local smoke test
+- No targeted tests for QAction removal (behavior unchanged)
+- WORKLOG markdown fixes are minimal and targeted
+
+### Follow-up Actions
+
+- Verify CI run completes successfully after push
+- Monitor for any remaining Qt library import errors
+- Consider adding ldd-based dependency verification if needed
+
+### Commit Details
+
+- Message: Fix Docker fontconfig runtime dependency
+- Files changed: Dockerfile, connection_tree.py, quick_connect_toolbar.py, .dockerignore, docs/WORKLOG.md
 - Pushed to main
 - CI run ID: pending

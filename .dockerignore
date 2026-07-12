@@ -58,7 +58,7 @@ htmlcov/
 *.tmp
 *.temp
 
-# poetry.lock
+
 
 # Documentation
 docs/_build/

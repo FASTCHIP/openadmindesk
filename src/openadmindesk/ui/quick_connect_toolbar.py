@@ -9,10 +9,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
 )
-try:
-    from PySide6.QtGui import QAction  # PySide6 >= 6.11  # noqa: F401
-except ImportError:
-    pass  # PySide6 < 6.11 — QAction was in QtWidgets
 from PySide6.QtCore import Qt, Signal
 from openadmindesk.core.l10n import _
 

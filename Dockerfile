@@ -36,6 +36,7 @@ RUN apt-get update && apt-get install -y \
     libegl1 \
     libgl1 \
     libxkbcommon0 \
+    libfontconfig1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
