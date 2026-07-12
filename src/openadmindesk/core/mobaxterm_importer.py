@@ -1,4 +1,8 @@
-"""MobaXterm configuration importer — parses MobaXterm.ini and imports sessions."""
+"""MobaXterm configuration importer — parses MobaXterm.ini and imports sessions.
+
+This is an independent implementation for importing user configurations.
+It is not affiliated with, endorsed by, or approved by Mobatek or MobaXterm.
+"""
 
 from __future__ import annotations
 

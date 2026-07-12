@@ -73,13 +73,13 @@ change, update docs/WORKLOG.md, and run the smallest relevant verification.
 
 ## Quick Verification
 
-The current baseline is known to be broken. Start with targeted checks, not a
-large refactor:
+The current baseline is functional. Run these commands after any changes to
+verify the project state:
 
 ```bash
 ruff check src tests tools
 pytest -q
 ```
 
-If either fails, record the exact failure in `docs/WORKLOG.md` and fix one
-failure class at a time.
+If either command fails, record the exact failure in `docs/WORKLOG.md` and
+fix one failure class at a time.

@@ -62,7 +62,7 @@ Successfully implemented Step 1 from `docs/MOBAXTERM_NEXT_STEPS_2026-07-11.md`: 
 
 ### Manual Testing
 ```bash
-PYTHONPATH=/ai/openadmindesk/src python3 -c "
+PYTHONPATH=src python3 -c "
 import sys
 sys.argv = ['test']
 from PySide6.QtWidgets import QApplication

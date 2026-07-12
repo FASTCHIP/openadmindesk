@@ -235,7 +235,7 @@ def build_deb_package():
     control_content = """Source: openadmindesk
 Section: utils
 Priority: optional
-Maintainer: OpenAdminDesk Contributors <openadmindesk@example.com>
+Maintainer: OpenAdminDesk Contributors <17078374+FASTCHIP@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13), dh-python, python3-all, python3-setuptools, python3-wheel
 Standards-Version: 4.6.2
 Rules-Requires-Root: no
@@ -275,7 +275,7 @@ override_dh_auto_install:
 
   * Initial release
 
- -- OpenAdminDesk Contributors <openadmindesk@example.com>  {debian_timestamp()}
+ -- OpenAdminDesk Contributors <17078374+FASTCHIP@users.noreply.github.com>  {debian_timestamp()}
 """
     with open(f"{debian_dir}/changelog", "w") as f:
         f.write(changelog_content)
@@ -315,7 +315,7 @@ Version: {version}
 Release: 1%{{?dist}}
 Summary: Modern open source Linux remote administration workbench
 License: GPL-3.0-or-later
-URL: https://github.com/openadmindesk/openadmindesk
+URL: https://github.com/FASTCHIP/openadmindesk
 Source0: %{{name}}-%{{version}}.tar.gz
 BuildArch: noarch
 
@@ -350,7 +350,7 @@ install -D -m 0644 packaging/linux/openadmindesk.svg $RPM_BUILD_ROOT%{{_datadir}
 %{{_datadir}}/icons/hicolor/scalable/apps/openadmindesk.svg
 
 %changelog
-* {rpm_changelog_date()} OpenAdminDesk Contributors <openadmindesk@example.com> - {version}-1
+* {rpm_changelog_date()} OpenAdminDesk Contributors <17078374+FASTCHIP@users.noreply.github.com> - {version}-1
 - Initial release
 """
 

@@ -512,3 +512,83 @@ Commands executed:
 
 All changes verified and ready for baseline commit with message:
 `Stabilize OpenAdminDesk project baseline`
+
+---
+
+## 2026-07-12 (Fix public repository metadata and CI)
+
+### Plan
+
+This entry marks the stabilization work to prepare the project for public versioning and baseline commit. Tasks include:
+1. README.md Quick Verification: Remove "baseline known broken" and update with honest verification commands
+2. CONTRIBUTING.md clone URL: Update from `https://github.com/your-org/openadmindesk.git` to `https://github.com/FASTCHIP/openadmindesk.git`
+3. IMPLEMENTATION_SUMMARY.md: Fix absolute `/ai/openadmindesk/src` to portable `PYTHONPATH=src`
+4. tools/build.py: Update package URL and maintainer email
+5. Add compatibility disclaimer in docstring for `src/openadmindesk/core/mobaxterm_importer.py`
+6. Fix CI workflow based on first GitHub Actions run analysis
+7. Run full ruff check and headless pytest
+8. Perform secret audit before commit
+9. Stage all verified project files and create commit
+10. Push to main and verify CI run
+
+### Implementation
+
+#### 1. README.md Quick Verification
+- Updated Quick Verification section to remove "baseline known broken" message
+- Replaced with honest verification commands that should be run after changes
+- Removed hardcoded test count
+
+#### 2. CONTRIBUTING.md clone URL
+- Updated clone URL from `https://github.com/your-org/openadmindesk.git` to `https://github.com/FASTCHIP/openadmindesk.git`
+
+#### 3. IMPLEMENTATION_SUMMARY.md
+- Fixed absolute path `/ai/openadmindesk/src` to portable `PYTHONPATH=src`
+
+#### 4. tools/build.py
+- Updated package URL from `https://github.com/openadmindesk/openadmindesk` to `https://github.com/FASTCHIP/openadmindesk`
+- Updated maintainer email from `openadmindesk@example.com` to `17078374+FASTCHIP@users.noreply.github.com` in Debian and RPM packaging
+
+#### 5. mobaxterm_importer.py
+- Added compatibility disclaimer in docstring explaining that this is an independent implementation not affiliated with Mobatek/MobaXterm
+
+#### 6. CI workflow fixes
+- Updated `actions/upload-artifact@v3` to `actions/upload-artifact@v4`
+- Fixed Docker job to not require Docker Hub secrets on ordinary push
+- Added `load: true` and `push: false` to docker/build-push-action
+- Used local tag `openadmindesk:ci` for testing
+- Removed Docker Hub secret references from regular CI
+
+#### 7. Workflow improvements
+- Removed references to `your-org` in workflow
+- Updated action versions to supported versions
+
+### Verification
+
+Commands executed:
+- `python3 -m py_compile src/openadmindesk/core/mobaxterm_importer.py`
+- `ruff check src tools tests`
+- `python3 -m pytest tests/ -q`
+- YAML syntax check for ci.yml
+- `git diff --check` for changed files
+
+### Files Changed
+
+- `README.md` - Updated Quick Verification section
+- `CONTRIBUTING.md` - Fixed clone URL
+- `IMPLEMENTATION_SUMMARY.md` - Fixed PYTHONPATH reference
+- `tools/build.py` - Updated package URL and maintainer email
+- `src/openadmindesk/core/mobaxterm_importer.py` - Added compatibility disclaimer
+- `.github/workflows/ci.yml` - Fixed CI workflow issues
+- `docs/WORKLOG.md` - Added this plan and implementation entry
+
+### Known Limitations
+
+- Full CI testing will be performed after push
+- Docker image testing is local-only for baseline
+- AppImage and package builds not verified in this task
+
+### Final Verification Pending
+
+- Clean CI run after push
+- Local/remote HEAD match
+- Public commit hash and CI run URL
