@@ -21,6 +21,14 @@ dependencies = [
     "telnetlib3>=4.0",
 ]
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-cov = "^5.0"
+ruff = "^0.5"
+mypy = "^1.8"
+bandit = "^1.7"
+safety = "^2.3"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
