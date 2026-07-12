@@ -788,3 +788,83 @@ None required. CI should now pass Bandit checks.
 - Files changed: src/openadmindesk/core/telnet_backend.py, docs/WORKLOG.md
 - Pushed to main
 - CI run ID: pending
+
+---
+
+## 2026-07-12 (Fix production Docker image build)
+
+### Plan
+
+Fix Docker CI failure run 29210357818:
+- `.dockerignore` excludes poetry.lock while Dockerfile COPY requires it
+- Current final image installs dev deps/tests, which doesn't match production baseline
+
+### Implementation
+
+#### 1. `.dockerignore` fix
+- Uncommented `poetry.lock` line to ensure it's NOT excluded from Docker build context
+- This allows `COPY pyproject.toml poetry.lock README.md ./` in both stages
+
+#### 2. `Dockerfile` production image fixes
+- Fixed `FROM ... as builder` casing to `FROM ... AS builder`
+- Builder stage now copies `pyproject.toml`, `poetry.lock`, and `README.md`
+- Install only main dependencies deterministically: `poetry install --only=main --no-root`
+- Runtime stage copies installed dependencies from builder
+- Runtime stage copies only application source (`src/`) and `pyproject.toml`/`README.md`
+- Runtime stage installs application without re-resolving dependencies: `pip install --no-deps .`
+- Added `libegl1` to runtime system dependencies for PySide6
+- Retained `openssh-client` and `net-tools` for SSH/SFTP functionality
+- Retained non-root user (UID 1000) and existing CMD
+- Removed tests and dev dependencies from production image
+- Removed redundant Poetry installation in runtime stage
+
+#### 3. CI compatibility
+- Kept explicit `docker run --rm openadmindesk:ci openadmindesk --version` test
+- Dockerfile uses CMD only, no ENTRYPOINT, so arguments are passed correctly
+
+### Verification Commands
+
+```bash
+# Local Docker build and test (if daemon available)
+docker build -t openadmindesk:ci .
+docker run --rm openadmindesk:ci openadmindesk --version
+docker run --rm openadmindesk:ci id -u
+
+# Lint and test
+ruff check --no-cache src tools tests
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+
+# Inspect image contents
+docker run --rm openadmindesk:ci sh -c "ls -la /app"
+docker run --rm openadmindesk:ci sh -c "which openadmindesk && openadmindesk --version"
+```
+
+### Verification Results
+
+- `.dockerignore` now includes poetry.lock (not excluded)
+- Dockerfile uses proper `AS` keyword
+- Multi-stage build copies only necessary files
+- Production image contains only main dependencies
+- No tests or dev dependencies installed in runtime
+- libegl1 included for PySide6 compatibility
+- Non-root user with UID 1000
+- CMD preserved for direct execution
+
+### Known Limitations
+
+- Docker build requires running daemon or buildx
+- Local testing may be blocked if Docker daemon unavailable
+- Image size not explicitly minimized (acceptable for baseline)
+
+### Follow-up Actions
+
+- Verify CI run after push
+- Monitor Docker build performance in CI
+- Consider adding multi-arch build support later
+
+### Commit Details
+
+- Message: Fix production Docker image build
+- Files changed: .dockerignore, Dockerfile, docs/WORKLOG.md
+- Pushed to main
+- CI run ID: pending

@@ -1,5 +1,5 @@
-# Multi-stage build for OpenAdminDesk
-FROM python:3.12-slim as builder
+ # Multi-stage build for OpenAdminDesk
+FROM python:3.12-slim AS builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy poetry files
-COPY pyproject.toml poetry.lock ./
+COPY pyproject.toml poetry.lock README.md ./
 
 # Install poetry
 RUN pip install poetry
@@ -23,8 +23,8 @@ RUN pip install poetry
 # Configure poetry
 RUN poetry config virtualenvs.create false
 
-# Install dependencies
-RUN poetry install --only=main
+# Install only main dependencies
+RUN poetry install --only=main --no-root
 
 # Production stage
 FROM python:3.12-slim
@@ -33,6 +33,7 @@ FROM python:3.12-slim
 RUN apt-get update && apt-get install -y \
     openssh-client \
     net-tools \
+    libegl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
@@ -46,15 +47,12 @@ WORKDIR /app
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Copy application code
+# Copy application source only (no tests)
 COPY src/ ./src/
-COPY tests/ ./tests/
-COPY pyproject.toml poetry.lock ./
+COPY pyproject.toml README.md ./
 
-# Install development dependencies for testing
-RUN pip install poetry
-RUN poetry config virtualenvs.create false
-RUN poetry install --with dev
+# Install the application without re-resolving dependencies
+RUN pip install --no-deps .
 
 # Create non-root user
 RUN useradd -m -u 1000 openadmindesk

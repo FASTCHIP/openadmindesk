@@ -58,8 +58,8 @@ htmlcov/
 *.tmp
 *.temp
 
-# Poetry
-poetry.lock
+ # Poetry
+# poetry.lock
 
 # Documentation
 docs/_build/
