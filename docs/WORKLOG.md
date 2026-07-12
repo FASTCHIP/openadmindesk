@@ -739,3 +739,52 @@ poetry check --lock
 ruff check --no-cache src tools tests
 QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
 ```
+
+---
+
+## 2026-07-12 (Fix Telnet Bandit suppression)
+
+### Plan
+
+Fix CI failure run 29210106244: Bandit B401 suppression is on previous line but should be inline on import.
+
+1. `src/openadmindesk/core/telnet_backend.py`:
+   - Kept explanatory comment about plaintext/legacy compatibility
+   - Moved `# nosec B401` inline to import statement: `import telnetlib3  # nosec B401`
+2. Updated `docs/WORKLOG.md` with follow-up result
+3. Verification: `poetry run bandit -r src/ -lll`, `poetry run pip-audit`, ruff file and full, targeted telnet tests (none exist) and full headless pytest, diff check
+4. If all green: commit `Fix Telnet Bandit suppression`, normal push main, one `gh run list` for new run ID
+
+### Verification Commands
+
+```bash
+poetry run bandit -r src/ -lll
+poetry run pip-audit
+ruff check src/openadmindesk/core/telnet_backend.py
+ruff check --no-cache src tools tests
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+```
+
+### Verification Results
+
+All checks passed:
+- Bandit: No issues identified, 1 suppression respected
+- pip-audit: No known vulnerabilities found
+- ruff: All checks passed
+- pytest: 285 tests passed
+
+### Known Limitations
+
+- No targeted telnet tests exist
+- Bandit shows 1 suppressed issue (telnetlib3 import) as expected
+
+### Follow-up Actions
+
+None required. CI should now pass Bandit checks.
+
+### Commit Details
+
+- Message: Fix Telnet Bandit suppression
+- Files changed: src/openadmindesk/core/telnet_backend.py, docs/WORKLOG.md
+- Pushed to main
+- CI run ID: pending

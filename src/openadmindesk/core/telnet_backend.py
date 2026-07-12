@@ -7,8 +7,8 @@ import logging
 import threading
 from typing import Optional
 
-# nosec B401: Telnet plaintext/insecure protocol retained only for explicit legacy compatibility
-import telnetlib3
+# Telnet plaintext/insecure protocol retained only for explicit legacy compatibility
+import telnetlib3  # nosec B401
 
 from openadmindesk.core.profile import Profile
 
