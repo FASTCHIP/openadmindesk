@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     net-tools \
     libegl1 \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
