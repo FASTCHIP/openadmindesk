@@ -6,11 +6,6 @@ import argparse
 import importlib.metadata
 import sys
 
-from PySide6.QtWidgets import QApplication
-from openadmindesk.ui.main_window import create_main_window
-from openadmindesk.ui.theme import apply_theme
-from openadmindesk.platform.platform_utils import enable_portable_mode, is_portable
-
 
 def _version() -> str:
     """Return installed package version, falling back during source runs."""
@@ -18,6 +13,20 @@ def _version() -> str:
         return importlib.metadata.version("openadmindesk")
     except importlib.metadata.PackageNotFoundError:
         return "0.1.0"
+
+
+def _load_gui_dependencies():
+    """Load GUI dependencies lazily after early return checks.
+
+    Returns a tuple of (QApplication, create_main_window, apply_theme,
+                        enable_portable_mode, is_portable).
+    """
+    from PySide6.QtWidgets import QApplication
+    from openadmindesk.ui.main_window import create_main_window
+    from openadmindesk.ui.theme import apply_theme
+    from openadmindesk.platform.platform_utils import enable_portable_mode, is_portable
+
+    return QApplication, create_main_window, apply_theme, enable_portable_mode, is_portable
 
 
 def main() -> int:
@@ -33,6 +42,9 @@ def main() -> int:
     if args.version:
         print(f"OpenAdminDesk {_version()}")
         return 0
+
+    # Load GUI dependencies only after version check
+    QApplication, create_main_window, apply_theme, enable_portable_mode, is_portable = _load_gui_dependencies()
 
     sys.argv[:] = [sys.argv[0], *remaining]
     if args.portable:

@@ -121,3 +121,7 @@ jobs:
       run: |
         docker run --rm openadmindesk:ci openadmindesk --version
 
+    - name: Qt runtime smoke test
+      run: |
+        docker run --rm -e QT_QPA_PLATFORM=offscreen openadmindesk:ci python -c "from PySide6.QtWidgets import QApplication; app = QApplication([]); print('Qt runtime OK')"
+

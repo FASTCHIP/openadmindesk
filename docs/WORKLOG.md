@@ -1001,3 +1001,84 @@ git grep --cached -E "(password|secret|token|key)" | grep -v "\.md:" | wc -l
 - Files changed: Dockerfile, connection_tree.py, quick_connect_toolbar.py, .dockerignore, docs/WORKLOG.md
 - Pushed to main
 - CI run ID: pending
+
+---
+
+## 2026-07-12 (Fix Docker GLib runtime and lazy version command)
+
+### Plan
+
+Fix Docker CI failure run 29211548533 `ImportError: libglib-2.0.so.0`:
+
+1. **Dockerfile**: Add confirmed Debian package `libglib2.0-0` to runtime stage system dependencies
+2. **app.py**: Create private lazy helper `_load_gui_dependencies()` that imports Qt/UI modules and returns them as a tuple; `main()` calls this helper only after `--version` early return to preserve stdlib-only version path and provide test seam
+3. **tests/test_app.py**: Update GUI tests to patch `_load_gui_dependencies()` returning tuple of MagicMocks/functions instead of patching nonexistent module attrs; strengthen version test with import failure simulation to prove helper is not called; remove bloated subprocess test with hardcoded `/ai/openadmindesk` path
+4. **ci.yml**: Keep separate Qt smoke test, format for readability
+5. **Verification**: targeted app tests, ruff full, headless pytest, bandit high, pip-audit, diff check, secret audit
+6. **Commit**: "Fix Docker GLib runtime and lazy version command", push normal main, get new CI run ID
+
+### Implementation
+
+#### 1. Dockerfile GLib dependency
+- Added `libglib2.0-0` to runtime stage system dependencies
+- Confirmed via CI error message
+
+#### 2. app.py refactoring
+- Created `_load_gui_dependencies()` helper that imports PySide6 and UI modules
+- Helper returns tuple of (QApplication, create_main_window, apply_theme, enable_portable_mode, is_portable)
+- `main()` calls helper only after `--version` early return check
+- `_version()` remains at module level using stdlib only
+- Behavior preserved for normal/portable startup
+
+#### 3. Test updates
+- Updated GUI tests to patch `_load_gui_dependencies()` and return appropriate mocks
+- Strengthened version test to prove helper is not called when `--version` is used
+- Removed bloated subprocess test with hardcoded paths and imports
+
+#### 4. CI workflow updates
+- Kept existing `openadmindesk --version` test
+- Added separate `QT_QPA_PLATFORM=offscreen` Qt smoke test with readable formatting
+- Uses explicit command with CMD-based image
+
+### Verification Commands
+
+```bash
+# App tests
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_app.py -q --tb=short -p no:cacheprovider
+
+# Lint and security
+ruff check --no-cache src tools tests
+poetry run bandit -r src/ -lll
+poetry run pip-audit
+
+# Full test suite
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+
+# Git hygiene
+git diff --check
+git grep --cached -E "(password|secret|token|key)" | grep -v "\.md:" | wc -l
+```
+
+### Files Changed
+
+- `Dockerfile`: Added libglib2.0-0
+- `src/openadmindesk/app.py`: Added `_load_gui_dependencies()` helper and lazy loading
+- `tests/test_app.py`: Updated tests to patch helper, strengthened version test, removed bloated subprocess test
+- `.github/workflows/ci.yml`: Formatted Qt smoke test for readability
+- `docs/WORKLOG.md`: Added this entry
+
+### Known Limitations
+
+- Docker daemon not available for local smoke test
+- Qt runtime smoke test relies on CI Docker build
+- libglib2.0-0 added based on confirmed Debian mapping
+
+### Follow-up Actions
+
+- Do not commit/push until verification passes
+- Do not claim hardcoded test as complete in final report
+
+### Verification Pending
+
+- All checks must pass before commit
+- CI run ID will be provided after push
