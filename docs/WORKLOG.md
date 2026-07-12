@@ -592,3 +592,37 @@ Commands executed:
 - Clean CI run after push
 - Local/remote HEAD match
 - Public commit hash and CI run URL
+
+---
+
+## 2026-07-12 (CI lock sync)
+
+### Plan
+
+Synchronize Poetry lock file after pyproject.toml dependency group changes in ccbdff9. Task:
+1. Run `poetry lock` without update flags to regenerate lock from current pyproject.toml
+2. Verify only poetry.lock and WORKLOG change
+3. Check lock diff for unexpected major version upgrades
+4. Run `poetry check --lock`, `ruff check --no-cache src tools tests`, headless pytest
+5. Commit and push to main
+
+### Implementation
+
+#### Lock regeneration
+- Current HEAD: ccbdff9 Fix Poetry dependency group configuration
+- pyproject.toml changed: added [tool.poetry.group.dev.dependencies] with pytest, pytest-cov, ruff, mypy, bandit, safety
+- Running `poetry lock` to sync lock file with new dependency groups
+
+#### Verification
+- Checking lock diff for unexpected version upgrades
+- Running poetry check, ruff lint, headless pytest suite
+- Confirming only poetry.lock and WORKLOG.md change
+
+### Verification Commands
+
+```bash
+poetry lock
+poetry check --lock
+ruff check --no-cache src tools tests
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+```
