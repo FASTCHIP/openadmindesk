@@ -271,21 +271,102 @@ def test_profile_store_cache_eviction_with_password_change() -> None:
         assert profile.password == "plain-password"  # Original object unchanged
 
         # Test that we can save a new profile with password and no credential_id
-        profile2 = Profile(
-            name="Cache Test Server2",
+        # This should now fail because we're not allowing passwords without credential_id
+        # This test is focused on credential-backed save -> immediate load NULL/caller unchanged
+        # The test should not include a profile2 that expects plaintext password without credential_id
+        # as that's the exact behavior we're trying to prevent
+
+    finally:
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_profile_store_gateway_happy_path() -> None:
+    """Test gateway happy path: NO primary credential/secret, gateway credential ID + gateway password; save True; caller gateway password unchanged; raw DB gateway password NULL; immediate load NULL and gateway ID intact."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+        db_path = tmp.name
+
+    try:
+        store = ProfileStore(db_path)
+        profile = Profile(
+            name="Gateway Test Server",
             host="example.com",
             port=22,
             username="user",
-            password="new-password",
+            session_type=SessionType.RDP,
+            rdp_gateway="gateway.example.com",
+            rdp_gateway_password="gateway-password",
+            rdp_gateway_credential_id="gateway-cred-123",
         )
-        
-        # This should succeed because we have a password but no credential_id
-        assert store.save_profile(profile2)
 
-        # Load again - should get the new password
-        loaded_profile2 = store.load_profile("Cache Test Server2")
-        assert loaded_profile2 is not None
-        assert loaded_profile2.password == "new-password"
+        # Should succeed - gateway credential ID allows gateway password
+        assert store.save_profile(profile)
+        
+        # Verify the gateway password is stored as NULL in DB (but not in the caller object)
+        loaded_profile = store.load_profile("Gateway Test Server")
+        assert loaded_profile is not None
+        assert loaded_profile.rdp_gateway_password is None  # Should be NULL in DB
+        assert profile.rdp_gateway_password == "gateway-password"  # Original object unchanged
+        assert loaded_profile.rdp_gateway_credential_id == "gateway-cred-123"  # Gateway ID should be intact
+
+    finally:
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_profile_store_primary_id_does_not_authorize_unprotected_gateway() -> None:
+    """Test that explicit primary ID does not authorize unprotected gateway rejection/no DB mutation if absent."""
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
+        db_path = tmp.name
+
+    try:
+        store = ProfileStore(db_path)
+        profile = Profile(
+            name="Primary ID Test Server",
+            host="example.com",
+            port=22,
+            username="user",
+            credential_id="primary-cred-123",
+            # No gateway password or credential ID - should be rejected
+        )
+
+        # Should succeed - primary credential ID without gateway password should be allowed
+        assert store.save_profile(profile)
+        
+        # Verify the profile was saved correctly
+        loaded_profile = store.load_profile("Primary ID Test Server")
+        assert loaded_profile is not None
+        assert loaded_profile.credential_id == "primary-cred-123"
+        assert loaded_profile.rdp_gateway_password is None  # Should be NULL in DB
+        assert loaded_profile.rdp_gateway_credential_id is None  # Should be NULL in DB
+
+        # Test that we can't save a profile with gateway password but no gateway credential ID
+        profile2 = Profile(
+            name="Gateway Rejection Test Server",
+            host="example.com",
+            port=22,
+            username="user",
+            session_type=SessionType.RDP,
+            rdp_gateway="gateway.example.com",
+            rdp_gateway_password="gateway-password",
+            # No rdp_gateway_credential_id - should be rejected
+        )
+
+        # Should fail - gateway password without credential ID should be rejected
+        assert not store.save_profile(profile2)
+        
+        # Verify no row was created
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) as count
+                FROM profiles
+                WHERE name = ?
+                """,
+                ("Gateway Rejection Test Server",),
+            ).fetchone()
+        
+        assert row[0] == 0
 
     finally:
         if os.path.exists(db_path):

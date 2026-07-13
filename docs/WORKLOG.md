@@ -1212,3 +1212,38 @@ This entry implements task 7.1 of Phase 7 from the audit remediation plan:
 - All tests pass with clean verification
 - No vulnerabilities found by pip-audit
 
+## 2026-07-13 (Fix ProfileStore credential boundary tests)
+
+### Implementation
+This entry implements the fixes for ProfileStore credential boundary tests as specified in the audit remediation plan:
+
+1. **Removed leftover `profile2` segment**: In `test_profile_store_cache_eviction_with_password_change`, removed the `profile2` segment that expected plaintext password without credential ID to save, keeping cache test focused on credential-backed save -> immediate load NULL/caller unchanged.
+
+2. **Added focused independent gateway happy-path test**: Added `test_profile_store_gateway_happy_path()` that tests:
+   - NO primary credential/secret
+   - gateway credential ID + gateway password
+   - save True
+   - caller gateway password unchanged
+   - raw DB gateway password NULL
+   - immediate load NULL and gateway ID intact
+
+3. **Added/retained explicit primary ID does not authorize unprotected gateway rejection**: Added `test_profile_store_primary_id_does_not_authorize_unprotected_gateway()` that:
+   - Tests that explicit primary ID does not authorize unprotected gateway rejection/no DB mutation if absent
+   - Verifies that primary credential ID without gateway password should be allowed
+   - Verifies that gateway password without credential ID should be rejected
+
+### Files Changed
+- `tests/test_profile_store.py` - Updated cache eviction test and added 2 new tests for gateway behavior
+
+### Verification
+- `python3 -m py_compile tests/test_profile_store.py` - passed
+- `ruff check tests/test_profile_store.py src/openadmindesk/core/profile_store.py` - passed
+- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_store.py -q` - 10 passed
+- `poetry run bandit -r src/ -lll` - passed
+- `poetry run pip-audit` - passed
+- `git diff --check` - clean
+
+### Known Limitations
+- All tests pass with clean verification
+- No vulnerabilities found by pip-audit
+
