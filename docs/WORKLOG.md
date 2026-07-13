@@ -1212,6 +1212,76 @@ This entry implements task 7.1 of Phase 7 from the audit remediation plan:
 - All tests pass with clean verification
 - No vulnerabilities found by pip-audit
 
+## 2026-07-13 (Implement atomic VaultManager.remove_account rollback)
+
+### Implementation
+
+This entry implements task 9.5a of Phase 9 from the audit remediation plan:
+
+1. **Enhanced `remove_account` method in `src/openadmindesk/core/vault_manager.py`**:
+   - Added snapshot mechanism before account removal (`original_accounts = self._vault_data["accounts"][:]`)
+   - Implemented rollback functionality when save operations fail by restoring the original accounts list
+   - Added proper exception handling that also restores the original state
+   - Maintained all existing behavior while adding atomicity guarantees
+   - Returns `True` when account is successfully removed and saved
+   - Returns `False` when account ID doesn't exist
+   - Returns `False` when save fails (with rollback)
+
+2. **Added comprehensive tests in `tests/test_vault_manager.py`**:
+   - `test_remove_account_success` - Tests successful account removal
+   - `test_remove_account_nonexistent_id` - Tests behavior with non-existent account IDs
+   - `test_remove_account_failure_reverts_changes` - Tests rollback on save failures
+   - `test_remove_account_runtime_error_reverts_changes` - Tests rollback on runtime errors
+
+### Verification
+
+```bash
+# Targeted vault tests
+python3 -m pytest tests/test_vault_manager.py -q
+
+# Ruff linting on changed files
+ruff check src/openadmindesk/core/vault_manager.py tests/test_vault_manager.py
+
+# Full ruff check
+ruff check --no-cache src tools tests
+
+# Full headless pytest
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+
+# Bandit security scan (high severity only)
+poetry run bandit -r src/ -lll
+
+# pip-audit vulnerability scan
+poetry run pip-audit
+
+# Git diff check
+git diff --check
+```
+
+### Files Changed
+
+- `src/openadmindesk/core/vault_manager.py` - Enhanced remove_account with atomic rollback
+- `tests/test_vault_manager.py` - Added 4 comprehensive rollback tests
+- `docs/AUDIT_REMEDIATION_PLAN.md` - Replaced 9.5 with subitems [x] 9.5a, [ ] 9.5b, [ ] 9.5c
+
+### Verification Results
+
+- Targeted vault tests: 15/15 passed ✅
+- Ruff linting on changed files: All checks passed ✅
+- Full ruff check: All checks passed ✅
+- Full headless pytest: 285/285 passed ✅
+- Bandit security scan: No high-severity issues ✅
+- pip-audit vulnerability scan: No known vulnerabilities ✅
+- Git diff check: Clean ✅
+
+### Known Limitations
+
+- No vulnerabilities found by pip-audit
+- All tests pass with clean verification
+- Implementation follows existing code patterns in the codebase
+
+---
+
 ## 2026-07-13 (Fix ProfileStore credential boundary tests)
 
 ### Implementation

@@ -330,6 +330,200 @@ def test_add_account_failure_reverts_changes_on_update(tmp_path, monkeypatch) ->
     assert retrieved_account.name == "First Account"
 
 
+def test_remove_account_success(tmp_path) -> None:
+    """Test that remove_account works correctly and returns True on success."""
+    vault_path = tmp_path / "vault.json"
+    manager = VaultManager(str(vault_path))
+    assert manager.setup_master_password("testpassword123")
+    assert manager.unlock("testpassword123")
+
+    # Add an account
+    account = Account(
+        id="test_id",
+        name="Test Account",
+        username="testuser",
+        password="password123",
+        host="192.168.1.1",
+        port=22
+    )
+
+    success = manager.add_account(account)
+    assert success
+
+    # Verify account was added
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 1
+
+    # Remove the account
+    success = manager.remove_account("test_id")
+    assert success
+
+    # Verify account was removed
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 0
+
+    # Verify account is no longer retrievable
+    retrieved_account = manager.get_account("test_id")
+    assert retrieved_account is None
+
+
+def test_remove_account_nonexistent_id(tmp_path) -> None:
+    """Test that remove_account returns False when account ID doesn't exist in populated vault."""
+    vault_path = tmp_path / "vault.json"
+    manager = VaultManager(str(vault_path))
+    assert manager.setup_master_password("testpassword123")
+    assert manager.unlock("testpassword123")
+
+    # Add some accounts to create a populated vault
+    account1 = Account(
+        id="existing_id_1",
+        name="First Account",
+        username="user1",
+        password="password1",
+        host="192.168.1.1",
+        port=22
+    )
+    account2 = Account(
+        id="existing_id_2",
+        name="Second Account",
+        username="user2",
+        password="password2",
+        host="192.168.1.2",
+        port=23
+    )
+
+    assert manager.add_account(account1)
+    assert manager.add_account(account2)
+
+    # Verify vault is populated
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 2
+
+    # Try to remove non-existent account
+    success = manager.remove_account("nonexistent_id")
+    assert not success
+
+    # Verify original accounts are unchanged
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 2
+
+    retrieved_account1 = manager.get_account("existing_id_1")
+    assert retrieved_account1 is not None
+    assert retrieved_account1.name == "First Account"
+
+    retrieved_account2 = manager.get_account("existing_id_2")
+    assert retrieved_account2 is not None
+    assert retrieved_account2.name == "Second Account"
+
+
+def test_remove_account_failure_reverts_changes(tmp_path, monkeypatch) -> None:
+    """Test that remove_account reverts changes on save failure."""
+    vault_path = tmp_path / "vault.json"
+    manager = VaultManager(str(vault_path))
+    assert manager.setup_master_password("testpassword123")
+    assert manager.unlock("testpassword123")
+
+    # Add initial account
+    account1 = Account(
+        id="test_id_1",
+        name="First Account",
+        username="user1",
+        password="password1",
+        host="192.168.1.1",
+        port=22
+    )
+
+    success = manager.add_account(account1)
+    assert success
+
+    # Add second account
+    account2 = Account(
+        id="test_id_2",
+        name="Second Account",
+        username="user2",
+        password="password2",
+        host="192.168.1.2",
+        port=23
+    )
+
+    success = manager.add_account(account2)
+    assert success
+
+    # Verify both accounts exist
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 2
+
+    # Mock _save_vault to return False to simulate save failure
+    monkeypatch.setattr(manager, '_save_vault', lambda: False)
+
+    # Try to remove an account that should fail
+    success = manager.remove_account("test_id_1")
+    assert not success  # Should return False due to save failure
+
+    # Verify accounts are unchanged (should still be 2 accounts)
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 2
+
+    # Verify original accounts are still there
+    retrieved_account1 = manager.get_account("test_id_1")
+    assert retrieved_account1 is not None
+    assert retrieved_account1.name == "First Account"
+
+    retrieved_account2 = manager.get_account("test_id_2")
+    assert retrieved_account2 is not None
+    assert retrieved_account2.name == "Second Account"
+
+    # Verify the account was not actually removed
+    retrieved_account3 = manager.get_account("test_id_3")
+    assert retrieved_account3 is None
+
+
+def test_remove_account_runtime_error_reverts_changes(tmp_path, monkeypatch) -> None:
+    """Test that remove_account handles RuntimeError during save and reverts changes."""
+    vault_path = tmp_path / "vault.json"
+    manager = VaultManager(str(vault_path))
+    assert manager.setup_master_password("testpassword123")
+    assert manager.unlock("testpassword123")
+
+    # Add initial account
+    account1 = Account(
+        id="test_id",
+        name="First Account",
+        username="user1",
+        password="password1",
+        host="192.168.1.1",
+        port=22
+    )
+
+    success = manager.add_account(account1)
+    assert success
+
+    # Verify account exists
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 1
+    assert accounts[0].name == "First Account"
+
+    # Mock _save_vault to raise RuntimeError to simulate save failure
+    def raise_runtime_error():
+        raise RuntimeError("Simulated save error")
+
+    monkeypatch.setattr(manager, '_save_vault', raise_runtime_error)
+
+    # Try to remove the account (should fail with RuntimeError)
+    success = manager.remove_account("test_id")
+    assert not success  # Should return False due to RuntimeError
+
+    # Verify account is unchanged
+    accounts = manager.get_all_accounts()
+    assert len(accounts) == 1
+    assert accounts[0].name == "First Account"
+
+    # Verify get_account returns original values
+    retrieved_account = manager.get_account("test_id")
+    assert retrieved_account is not None
+    assert retrieved_account.name == "First Account"
+
+
 def test_add_account_runtime_error_during_update(tmp_path, monkeypatch) -> None:
     """Test that add_account handles RuntimeError during UPDATE and reverts changes."""
     vault_path = tmp_path / "vault.json"

@@ -392,19 +392,30 @@ class VaultManager:
         if not self._is_unlocked:
             return False
         
+        # Snapshot current accounts before mutation
+        original_accounts = self._vault_data["accounts"][:]
+
         try:
             # Find and remove the account
             for i, account_data in enumerate(self._vault_data["accounts"]):
                 if account_data.get("id") == account_id:
                     self._vault_data["accounts"].pop(i)
-                    self._save_vault()
-                    
+                    save_success = self._save_vault()
+
+                    if not save_success:
+                        # Restore snapshot on failure
+                        self._vault_data["accounts"] = original_accounts
+                        logger.warning(f"Failed to save vault for account ID {account_id}, changes reverted")
+                        return False
+
                     # Clear cache since vault data changed
                     self._clear_cache()
                     
                     return True
             return False
         except Exception as e:
+            # Restore snapshot on exception
+            self._vault_data["accounts"] = original_accounts
             logger.error(f"Failed to remove account {account_id}: {e}")
             return False
 
