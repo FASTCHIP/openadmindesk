@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -188,10 +189,85 @@ class SessionWizard(QWizard):
     def accept(self) -> None:
         """Create the profile on finish."""
         profile = self._build_profile()
-        if profile:
+        if not profile:
+            # Invalid profile, do not close
+            return
+            
+        # Handle credential save modes
+        launch_behavior = self.launch_behavior()
+        if launch_behavior == _LAUNCH_TEMP_CONNECT:
+            # Temporary connect mode - no vault/store calls, just set _saved_profile
             self._saved_profile = profile
-            if self.launch_behavior() != _LAUNCH_TEMP_CONNECT:
-                self.store.save_profile(profile)
+            super().accept()
+            return
+            
+        # For save modes, check vault state and handle accordingly
+        credential_id = profile.credential_id
+        password = profile.password
+        
+        # If password entered but vault is absent or locked, show error
+        if password and (not self.vault or not self.vault.is_unlocked()):
+            QMessageBox.critical(
+                self,
+                _("Vault Required"),
+                _("A vault is required to save passwords. Please unlock the vault first.")
+            )
+            return
+            
+        # If vault is unlocked and password is entered, save to vault
+        if password and self.vault and self.vault.is_unlocked():
+            # Create account with entered password
+            account = Account(
+                name=str(profile.name),
+                username=str(profile.username),
+                password=str(password),
+                host=str(profile.host or "localhost"),
+                port=profile.port,
+                service_type=profile.session_type.value,
+            )
+            # If credential_id exists, preserve it and other fields
+            if credential_id:
+                account.id = credential_id
+            try:
+                if self.vault.add_account(account):
+                    # Successfully added to vault, update profile
+                    profile = profile.replace(credential_id=account.id, password=None)
+                else:
+                    # Vault error - return without saving
+                    QMessageBox.critical(
+                        self,
+                        _("Vault Error"),
+                        _("Failed to save account to vault.")
+                    )
+                    return
+            except Exception:
+                # Vault error - return without saving
+                QMessageBox.critical(
+                    self,
+                    _("Vault Error"),
+                    _("Failed to save account to vault.")
+                )
+                return
+                
+        # If store.save_profile fails, return without saving
+        try:
+            if not self.store.save_profile(profile):
+                QMessageBox.critical(
+                    self,
+                    _("Save Error"),
+                    _("Failed to save profile.")
+                )
+                return
+        except Exception:
+            QMessageBox.critical(
+                self,
+                _("Save Error"),
+                _("Failed to save profile.")
+            )
+            return
+            
+        # Success - set _saved_profile and close
+        self._saved_profile = profile
         super().accept()
 
     def created_profile(self) -> Optional[Profile]:
@@ -210,6 +286,7 @@ class SessionWizard(QWizard):
         }
 
     def _build_profile(self) -> Optional[Profile]:
+        """Build profile without side effects."""
         st = self.protocol_page.selected_type()
         name = self.field("name")
         host = self.field("host")
@@ -222,22 +299,22 @@ class SessionWizard(QWizard):
         password = self.field("password") or None
         private_key_path = self.field("private_key") or None
         credential_id = self.credential_page.selected_credential_id()
-        # Store password in vault if unlocked, otherwise keep in profile
-        profile_password = password
-        profile_passphrase = None
-        if password and self.vault and self.vault.is_unlocked():
-            account = Account(
-                name=str(name),
-                username=str(username),
-                password=str(password),
-                host=str(host or "localhost"),
-                port=port,
-                service_type=st.value,
-            )
-            if self.vault.add_account(account):
-                credential_id = account.id
-                profile_password = None  # password stored in vault
-
+        
+        # Return password in memory unless existing credential ID is selected with empty password
+        # This makes _build_profile side-effect free
+        if credential_id and not password:
+            # Existing credential selected with no password - return None for password
+            password = None
+        elif not credential_id and password:
+            # New credential with password - return password in memory
+            pass
+        elif credential_id and password:
+            # Existing credential with new password - return password in memory
+            pass
+        else:
+            # No credential ID and no password - return None for password
+            password = None
+            
         # Common fields
         kwargs: dict = dict(
             name=name,
@@ -245,9 +322,9 @@ class SessionWizard(QWizard):
             port=port,
             username=username,
             session_type=st,
-            password=profile_password,
+            password=password,
             private_key_path=private_key_path,
-            private_key_passphrase=profile_passphrase,
+            private_key_passphrase=None,
             credential_id=credential_id,
             parent_folder=self.connection_page.selected_folder(),
         )

@@ -70,12 +70,19 @@ def test_session_wizard_stores_manual_password_in_unlocked_vault(tmp_path) -> No
     wizard.credential_page.username_input.setText("admin")
     wizard.credential_page.password_input.setText("top-secret")
 
+    # Test that _build_profile returns password in memory
     profile = wizard._build_profile()
-
     assert profile is not None
-    assert profile.password is None
-    assert profile.credential_id
-    account = vault.get_account(profile.credential_id)
+    assert profile.password == "top-secret"  # Password should be in memory during build
+    assert profile.credential_id is None  # No credential ID yet
+
+    # Test that accept properly stores password in vault
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is not None
+    assert saved_profile.password is None  # Password should be in vault now
+    assert saved_profile.credential_id is not None  # Should have credential ID
+    account = vault.get_account(saved_profile.credential_id)
     assert account is not None
     assert account.password == "top-secret"
     assert account.username == "admin"
@@ -270,14 +277,18 @@ def test_no_plaintext_password_in_profile_when_vault_used(tmp_path) -> None:
     wizard.credential_page.username_input.setText("admin")
     wizard.credential_page.password_input.setText("secret-password")
 
-    # Advanced fields don't affect vault behaviour
-    wizard.ssh_advanced_page.agent_cb.setChecked(True)
-
+    # Test that _build_profile returns password in memory
     profile = wizard._build_profile()
-
     assert profile is not None
-    assert profile.password is None  # never stored in profile
-    assert profile.credential_id is not None
+    assert profile.password == "secret-password"  # Password should be in memory during build
+    assert profile.credential_id is None  # No credential ID yet
+
+    # Test that accept properly stores password in vault
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is not None
+    assert saved_profile.password is None  # Password should be in vault now
+    assert saved_profile.credential_id is not None  # Should have credential ID
     # Advanced fields still present
-    assert profile.use_ssh_agent is True
+    assert saved_profile.use_ssh_agent is True
 
