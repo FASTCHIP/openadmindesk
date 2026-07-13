@@ -203,10 +203,11 @@ class ProfileStore:
 
             # For credential-backed saves, we want to persist SQL NULL for passwords/passphrases
             # without mutating the caller's profile object
-            # If credential_id is set, store NULL in DB for all passwords; otherwise, store the actual values
+            # If credential_id is set, store NULL in DB for primary passwords; otherwise, store the actual values
+            # If rdp_gateway_credential_id is set, store NULL in DB for gateway passwords; otherwise, store the actual values
             password_to_save = None if profile.credential_id else profile.password
             private_key_passphrase_to_save = None if profile.credential_id else profile.private_key_passphrase
-            rdp_gateway_password_to_save = None if profile.credential_id else profile.rdp_gateway_password
+            rdp_gateway_password_to_save = None if profile.rdp_gateway_credential_id else profile.rdp_gateway_password
 
             with self._get_connection() as conn:
                 conn.execute("""

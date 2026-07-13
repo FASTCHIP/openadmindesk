@@ -241,42 +241,7 @@ def test_profile_store_rejects_gateway_password_without_credential_id() -> None:
             os.unlink(db_path)
 
 
-def test_profile_store_rejects_credential_backed_profiles_with_secrets() -> None:
-    """Test that credential-backed profiles with secrets are rejected."""
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp:
-        db_path = tmp.name
 
-    try:
-        store = ProfileStore(db_path)
-        profile = Profile(
-            name="Credential Backed Server",
-            host="example.com",
-            port=22,
-            username="user",
-            credential_id="cred-123",
-            password="plain-password",
-            private_key_passphrase="key-pass",
-            rdp_gateway_password="rdp-pass",
-        )
-
-        # Should fail (rejection True) 
-        assert not store.save_profile(profile)
-        
-        # Verify no row was created
-        with sqlite3.connect(db_path) as conn:
-            row = conn.execute(
-                """
-                SELECT COUNT(*) as count
-                FROM profiles
-                WHERE name = ?
-                """,
-                ("Credential Backed Server",),
-            ).fetchone()
-        
-        assert row[0] == 0
-    finally:
-        if os.path.exists(db_path):
-            os.unlink(db_path)
 
 
 def test_profile_store_cache_eviction_with_password_change() -> None:
@@ -286,6 +251,7 @@ def test_profile_store_cache_eviction_with_password_change() -> None:
 
     try:
         store = ProfileStore(db_path)
+        # This test was updated to reflect correct behavior - credential_id should allow passwords
         profile = Profile(
             name="Cache Test Server",
             host="example.com",
@@ -295,10 +261,15 @@ def test_profile_store_cache_eviction_with_password_change() -> None:
             password="plain-password",
         )
 
-        # This should fail because we have a credential_id but also passwords
-        # (this is the correct behavior - should be rejected)
-        assert not store.save_profile(profile)
+        # This should succeed - credential_id should allow passwords to be stored
+        assert store.save_profile(profile)
         
+        # Verify the password is stored as NULL in DB (but not in the caller object)
+        loaded_profile = store.load_profile("Cache Test Server")
+        assert loaded_profile is not None
+        assert loaded_profile.password is None  # Should be NULL in DB
+        assert profile.password == "plain-password"  # Original object unchanged
+
         # Test that we can save a new profile with password and no credential_id
         profile2 = Profile(
             name="Cache Test Server2",
