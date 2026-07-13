@@ -383,56 +383,91 @@ class ProfileEditor(QWidget):
         entered_password = self.password_input.text() or None
         entered_key_passphrase = self.key_passphrase_input.text() or None
         entered_gateway_password = self.rdp_gateway_pass_input.text() or None
-        password = entered_password if entered_password is not None else self.profile.password
-        key_passphrase = (
-            entered_key_passphrase
-            if entered_key_passphrase is not None
-            else self.profile.private_key_passphrase
-        )
-        gateway_password = (
-            entered_gateway_password
-            if entered_gateway_password is not None
-            else self.profile.rdp_gateway_password
-        )
-        if (entered_password or entered_key_passphrase) and self.vault_manager and self.vault_manager.is_unlocked():
+        
+        # Determine vault_unlocked
+        vault_unlocked = self.vault_manager and self.vault_manager.is_unlocked()
+        
+        # 1) Any newly entered primary/gateway secret with vault absent/locked => QMessageBox.critical `Vault Required`, return before store/signal/close; never copy entered secret into Profile.
+        if ((entered_password or entered_key_passphrase) or entered_gateway_password) and not vault_unlocked:
+            QMessageBox.critical(self, _("Vault Required"), _("Cannot save profile with new secrets without an unlocked vault."))
+            return
+            
+        # 2) Legacy existing profile plaintext with no matching selected credential ID and no newly entered replacement => critical migration-required, return; no silent loss.
+        if (self.profile.password or self.profile.private_key_passphrase or self.profile.rdp_gateway_password) and not selected_credential_id:
+            # Check if we have new secrets that would replace the old ones
+            has_new_secrets = (entered_password or entered_key_passphrase or entered_gateway_password)
+            if not has_new_secrets:
+                QMessageBox.critical(self, _("Migration Required"), _("Legacy profile with plaintext secrets requires a credential ID or new secret to be saved."))
+                return
+        
+        # 3) Unlocked entered primary: upsert Account via add_account directly, NEVER remove_account. If selected ID, get existing account and preserve password/passphrase counterpart when that field left blank; new field overrides. add False => critical Vault Error, return before store.
+        if (entered_password or entered_key_passphrase) and vault_unlocked:
+            # Get existing account if we have a selected credential ID
+            existing_account = None
+            if selected_credential_id:
+                existing_account = self.vault_manager.get_account(selected_credential_id)
+            
+            # Create account with appropriate password/passphrase handling
             account = Account(
                 id=selected_credential_id,
                 name=self.profile.name or self.name_input.text().strip(),
                 username=self.profile.username,
-                password=entered_password or "",
-                private_key_passphrase=entered_key_passphrase,
+                password=entered_password if entered_password is not None else (existing_account.password if existing_account else ""),
+                private_key_passphrase=entered_key_passphrase if entered_key_passphrase is not None else (existing_account.private_key_passphrase if existing_account else None),
                 host=self.host_input.text().strip(),
                 port=self.port_input.value(),
                 service_type=self.session_type_input.currentData().value,
             )
-            if selected_credential_id:
-                self.vault_manager.remove_account(selected_credential_id)
-            if self.vault_manager.add_account(account):
+            
+            # Add account (this will upsert)
+            if not self.vault_manager.add_account(account):
+                QMessageBox.critical(self, _("Vault Error"), _("Failed to save account to vault."))
+                return
+                
+            # Update selected credential ID if it was newly created
+            if not selected_credential_id:
                 selected_credential_id = account.id
-        if entered_gateway_password and self.vault_manager and self.vault_manager.is_unlocked():
+                
+        # 4) Gateway entered: same direct upsert; preserve selected account data where appropriate; failure returns.
+        if entered_gateway_password and vault_unlocked:
+            # Get existing gateway account if we have a selected credential ID
+            existing_gateway_account = None
+            if selected_gateway_credential_id:
+                existing_gateway_account = self.vault_manager.get_account(selected_gateway_credential_id)
+                
             gateway_account = Account(
                 id=selected_gateway_credential_id,
                 name=f"{self.profile.name or self.name_input.text().strip()} Gateway",
                 username=self.rdp_gateway_user_input.text().strip(),
-                password=entered_gateway_password or "",
+                password=entered_gateway_password if entered_gateway_password is not None else (existing_gateway_account.password if existing_gateway_account else ""),
                 host=self.rdp_gateway_input.text().strip(),
                 port=443,
                 service_type="rdp-gateway",
             )
-            if selected_gateway_credential_id:
-                self.vault_manager.remove_account(selected_gateway_credential_id)
-            if self.vault_manager.add_account(gateway_account):
+            
+            # Add gateway account (this will upsert)
+            if not self.vault_manager.add_account(gateway_account):
+                QMessageBox.critical(self, _("Vault Error"), _("Failed to save gateway account to vault."))
+                return
+                
+            # Update selected gateway credential ID if it was newly created
+            if not selected_gateway_credential_id:
                 selected_gateway_credential_id = gateway_account.id
 
         self.profile.credential_id = selected_credential_id
         self.profile.rdp_gateway_credential_id = selected_gateway_credential_id
-        # If vault was used, clear password from profile; otherwise keep it
-        if selected_credential_id and self.vault_manager and self.vault_manager.is_unlocked():
+        
+        # 5) Selected credential ID means Profile primary secrets set None regardless current vault lock; selected gateway ID means gateway password None. Existing selected ID + no new secret must save safely while locked.
+        if selected_credential_id:
             self.profile.password = None
             self.profile.private_key_passphrase = None
         else:
+            # If no credential ID, preserve existing passwords
+            password = entered_password if entered_password is not None else self.profile.password
+            key_passphrase = entered_key_passphrase if entered_key_passphrase is not None else self.profile.private_key_passphrase
             self.profile.password = password
             self.profile.private_key_passphrase = key_passphrase
+            
         self.profile.proxy_command = self.proxy_input.text().strip() or None
         self.profile.use_ssh_agent = self.use_ssh_agent_checkbox.isChecked()
         self.profile.compression = self.compression_checkbox.isChecked()
@@ -445,9 +480,10 @@ class ProfileEditor(QWidget):
             self.profile.rdp_gateway = self.rdp_gateway_input.text().strip() or None
             self.profile.rdp_gateway_username = self.rdp_gateway_user_input.text().strip() or None
             self.profile.rdp_gateway_credential_id = selected_gateway_credential_id
-            if selected_gateway_credential_id and self.vault_manager and self.vault_manager.is_unlocked():
+            if selected_gateway_credential_id:
                 self.profile.rdp_gateway_password = None
             else:
+                gateway_password = entered_gateway_password if entered_gateway_password is not None else self.profile.rdp_gateway_password
                 self.profile.rdp_gateway_password = gateway_password
         else:
             self.profile.rdp_multimon = False
