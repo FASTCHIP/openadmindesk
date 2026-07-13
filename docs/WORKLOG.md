@@ -389,7 +389,7 @@ python3 -m pytest -q                    # 273 passed
   - Added icon_id persistence coverage and ASCII fallback coverage.
 
 - 	tests/test_profile_editor.py
-  - Production code introduced in 60e8e38, unchanged in 632ca6a.
+  - Added coverage for exposing and saving selected session icons.
 
 - 	tests/test_tabbed_workspace.py
   - Added coverage for non-null tab icons and visible close button behavior.
@@ -1248,6 +1248,28 @@ This entry implements the fixes for ProfileStore credential boundary tests as sp
 - No vulnerabilities found by pip-audit
 
 
+## 2026-07-13 (Fix ProfileEditor locked-vault assertions)
+
+### Implementation
+This entry fixes the ProfileEditor locked-vault assertion behavior as specified in the audit remediation plan:
+
+1. **Fixed ProfileEditor credential validation logic**:
+   - Corrected the behavior for G1/G2 assertions (gateway password and key passphrase with locked vault)
+   - Ensured that when vault is locked, entering gateway password or key passphrase should block saving
+   - Verified that the password/passphrase remains in input fields and profile fields
+
+### Files Changed
+- `src/openadmindesk/ui/profile_editor.py` - Fixed credential validation logic for locked vault scenarios
+- `tests/test_profile_editor.py` - Added focused tests G1-G2 to verify locked vault behavior
+
+### Verification
+- `python3 -m py_compile src/openadmindesk/ui/profile_editor.py` - passed
+- `ruff check src tests` - passed
+- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_editor.py -q` - 10 passed
+- `poetry run bandit -r src/ -lll` - passed
+- `poetry run pip-audit` - passed
+- `git diff --check` - clean
+
 ## 2026-07-13 (Implement credential validation and DB handling for ProfileEditor)
 
 ### Implementation
@@ -1267,8 +1289,7 @@ This entry implements the required credential validation and DB handling for Pro
    - Added test for store.save_profile False shows Save Error (G5)
 
 ### Files Changed
-- `src/openadmindesk/ui/profile_editor.py` - Enhanced credential validation logic
-- `tests/test_profile_editor.py` - Added focused tests G1-G5
+- `tests/test_profile_editor.py` - Added focused tests G1-G5 (production implementation was 60e8e38 and 632ca6a added tests/docs)
 
 ### Verification
 - `python3 -m py_compile src/openadmindesk/ui/profile_editor.py` - passed
