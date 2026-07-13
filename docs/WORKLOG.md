@@ -1276,17 +1276,17 @@ This entry fixes the ProfileEditor locked-vault assertion behavior as specified 
 This entry implements the required credential validation and DB handling for ProfileEditor as specified in the audit remediation plan:
 
 1. **Enhanced ProfileEditor credential validation logic**:
-   - Added proper checks for legacy primary plaintext without selected primary ID/new primary
-   - Added proper checks for legacy gateway plaintext without selected gateway ID/new gateway
-   - Ensured presence of new primary secret does not bypass legacy gateway check
-   - Implemented proper error handling for vault-required scenarios
+    - Added proper checks for legacy primary plaintext without selected primary ID/new primary
+    - Added proper checks for legacy gateway plaintext without selected gateway ID/new gateway
+    - Ensured presence of new primary secret does not bypass legacy gateway check
+    - Implemented proper error handling for vault-required scenarios
 
 2. **Added focused tests G1-G5**:
-   - Added test for gateway entered + locked vault blocks (G1)
-   - Added test for key passphrase entered + locked blocks (G2)
-   - Added test for existing selected credential ID + no new secret + locked vault saves (G3)
-   - Added test for unlocked vault add_account False shows Vault Error (G4)
-   - Added test for store.save_profile False shows Save Error (G5)
+    - Added test for gateway entered + locked vault blocks (G1)
+    - Added test for key passphrase entered + locked blocks (G2)
+    - Added test for existing selected credential ID + no new secret + locked vault saves (G3)
+    - Added test for unlocked vault add_account False shows Vault Error (G4)
+    - Added test for store.save_profile False shows Save Error (G5)
 
 ### Files Changed
 - `tests/test_profile_editor.py` - Added focused tests G1-G5 (production implementation was 60e8e38 and 632ca6a added tests/docs)
@@ -1297,4 +1297,30 @@ This entry implements the required credential validation and DB handling for Pro
 - `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_editor.py -q` - 10 passed
 - `poetry run bandit -r src/ -lll` - passed
 - `poetry run pip-audit` - passed
+- `git diff --check` - clean
+
+## 2026-07-13 (Add Post-publication Security Hardening Plan)
+
+### Implementation
+This entry adds Phase 9 - Post-publication Security Hardening to the audit remediation plan as requested. The phase includes:
+
+1. **Added Phase 9** with all 11 tasks as specified in the audit plan:
+   - 9.1 ProfileStore rejects new unprotected primary/gateway secrets
+   - 9.2 VaultManager atomic non-mutating account upsert/rollback
+   - 9.3 ProfileEditor requires unlocked vault for entered secrets
+   - 9.4 SessionWizard saved modes require unlocked vault + successful vault/store writes
+   - 9.5 ProfileEditor vault-before-validation/orphan transaction ordering
+   - 9.6 Legacy plaintext migration dry-run/backup/report/schema plan
+   - 9.7 SSH ProxyCommand connect-time revalidation/tests
+   - 9.8 Passive periodic vault auto-lock UI timer/tests
+   - 9.9 Versioned vault KDF migration/Argon2id design+tests
+   - 9.10 Telnet cleartext warning; tunnel logging; executor lifecycle
+   - 9.11 Packaging/release clean-env verification and demo E402 hygiene
+
+### Files Changed
+- `docs/AUDIT_REMEDIATION_PLAN.md` - Added Phase 9 with all tasks
+- `docs/WORKLOG.md` - Added this entry to document the change
+
+### Verification
+- `ruff check docs/AUDIT_REMEDIATION_PLAN.md` - passed
 - `git diff --check` - clean

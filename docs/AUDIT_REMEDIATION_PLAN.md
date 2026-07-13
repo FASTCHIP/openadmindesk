@@ -238,10 +238,27 @@ python tools/build.py deb
 - Do not claim MobaXterm parity. Track concrete workflows instead.
 - Do not mark packaging complete based only on scripts existing.
 
-## Unchecked Follow-ups
+## Phase 9 - Post-publication Security Hardening
 
-- [ ] **ProfileEditor**: vault-before-validation/orphan transaction ordering - need to ensure that when a vault operation fails, the profile state is not left in an inconsistent state, and that the transaction ordering is properly handled to prevent orphaned operations.
+Goal: Implement additional security measures after the initial publication.
 
+- [ ] 9.1 ProfileStore rejects new unprotected primary/gateway secrets; credential IDs persist NULL; legacy readable (commits through a8d39c6).
+- [ ] 9.2 VaultManager atomic non-mutating account upsert/rollback (ebc4f6b+393d430).
+- [ ] 9.3 ProfileEditor requires unlocked vault for entered secrets, upsert/no remove, failure UX, tests (60e8e38 through cbcc3e3/632ca6a).
+- [ ] 9.4 SessionWizard saved modes require unlocked vault + successful vault/store writes; temporary-connect remains memory-only; tests.
+- [ ] 9.5 ProfileEditor vault-before-validation/orphan transaction ordering (move/remove existing standalone unchecked duplicate so one source).
+- [ ] 9.6 Legacy plaintext migration dry-run/backup/report/schema plan.
+- [ ] 9.7 SSH ProxyCommand connect-time revalidation/tests.
+- [ ] 9.8 Passive periodic vault auto-lock UI timer/tests.
+- [ ] 9.9 Versioned vault KDF migration/Argon2id design+tests.
+- [ ] 9.10 Telnet cleartext warning; tunnel logging; executor lifecycle as separate sub-bullets.
+- [ ] 9.11 Packaging/release clean-env verification and demo E402 hygiene.
+
+Verification:
+
+```bash
+# Placeholder for verification commands once tasks are implemented
+```
 
 ## Do Not Do Yet
 
