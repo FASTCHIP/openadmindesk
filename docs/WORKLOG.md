@@ -1247,3 +1247,33 @@ This entry implements the fixes for ProfileStore credential boundary tests as sp
 - All tests pass with clean verification
 - No vulnerabilities found by pip-audit
 
+
+## 2026-07-13 (Implement credential validation and DB handling for ProfileEditor)
+
+### Implementation
+This entry implements the required credential validation and DB handling for ProfileEditor as specified in the audit remediation plan:
+
+1. **Enhanced ProfileEditor credential validation logic**:
+   - Added proper checks for legacy primary plaintext without selected primary ID/new primary
+   - Added proper checks for legacy gateway plaintext without selected gateway ID/new gateway
+   - Ensured presence of new primary secret does not bypass legacy gateway check
+   - Implemented proper error handling for vault-required scenarios
+
+2. **Added focused tests G1-G5**:
+   - Added test for gateway entered + locked vault blocks (G1)
+   - Added test for key passphrase entered + locked blocks (G2)
+   - Added test for existing selected credential ID + no new secret + locked vault saves (G3)
+   - Added test for unlocked vault add_account False shows Vault Error (G4)
+   - Added test for store.save_profile False shows Save Error (G5)
+
+### Files Changed
+- `src/openadmindesk/ui/profile_editor.py` - Enhanced credential validation logic
+- `tests/test_profile_editor.py` - Added focused tests G1-G5
+
+### Verification
+- `python3 -m py_compile src/openadmindesk/ui/profile_editor.py` - passed
+- `ruff check src tests` - passed
+- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_editor.py -q` - 10 passed
+- `poetry run bandit -r src/ -lll` - passed
+- `poetry run pip-audit` - passed
+- `git diff --check` - clean

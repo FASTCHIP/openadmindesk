@@ -341,3 +341,141 @@ def test_profile_editor_handles_gateway_password_with_vault_unlocked(tmp_path) -
     assert account is not None
     assert account.service_type == "rdp-gateway"
     assert account.password == "gateway-secret"
+
+
+def test_profile_editor_blocks_gateway_entered_with_locked_vault(tmp_path) -> None:
+    """Test that saving gateway password with locked vault is blocked."""
+    from openadmindesk.core.profile import SessionType
+    from openadmindesk.core.vault_manager import VaultManager
+
+    # Create a vault but don't unlock it
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    # Don't unlock the vault
+    
+    profile = Profile(
+        name="RDP",
+        host="rdp.example.com",
+        port=3389,
+        username="rdp-user",
+        session_type=SessionType.RDP,
+        rdp_gateway="gw.example.com",
+        rdp_gateway_username="gw-user",
+    )
+    editor = ProfileEditor(profile, vault_manager=vault)
+    editor.rdp_gateway_pass_input.setText("gateway-secret")
+
+    # This should not save and should show a critical error
+    editor._save_profile()
+    
+    # Password should still be in the input field (not saved)
+    assert editor.rdp_gateway_pass_input.text() == "gateway-secret"
+    # Profile should still have the gateway password
+    assert profile.rdp_gateway_password == "gateway-secret"
+
+
+def test_profile_editor_blocks_key_passphrase_entered_with_locked_vault(tmp_path) -> None:
+    """Test that saving key passphrase with locked vault is blocked."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    # Create a vault but don't unlock it
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    # Don't unlock the vault
+    
+    profile = Profile(name="SSH", host="example.com", port=22, username="admin")
+    editor = ProfileEditor(profile, vault_manager=vault)
+    editor.key_passphrase_input.setText("key-passphrase")
+
+    # This should not save and should show a critical error
+    editor._save_profile()
+    
+    # Passphrase should still be in the input field (not saved)
+    assert editor.key_passphrase_input.text() == "key-passphrase"
+    # Profile should still have the passphrase
+    assert profile.private_key_passphrase == "key-passphrase"
+
+
+def test_profile_editor_saves_with_existing_selected_credential_id_and_no_new_secret(tmp_path) -> None:
+    """Test that saving with existing selected credential ID and no new secret works."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    
+    # Create an account first
+    account = vault.add_account(
+        Account(
+            name="Test Account",
+            username="admin",
+            password="old-secret",
+            host="example.com",
+            port=22,
+            service_type="ssh"
+        )
+    )
+    
+    # Create a profile with the credential ID but no new secrets
+    profile = Profile(
+        name="Test Profile",
+        host="example.com",
+        port=22,
+        username="admin",
+        credential_id=account.id
+    )
+    editor = ProfileEditor(profile, vault_manager=vault)
+    
+    # Don't enter any new secrets
+    
+    editor._save_profile()
+    
+    # Should save successfully without errors
+    assert profile.credential_id == account.id
+    assert profile.password is None  # Should be cleared from profile
+
+
+def test_profile_editor_shows_vault_error_when_add_account_fails(tmp_path) -> None:
+    """Test that saving with vault error shows Vault Error message."""
+    from openadmindesk.core.vault_manager import VaultManager
+    from unittest.mock import patch
+
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    
+    profile = Profile(name="Edited", host="edited.example.com", port=22, username="admin")
+    editor = ProfileEditor(profile, vault_manager=vault)
+    editor.password_input.setText("new-secret")
+    
+    # Mock add_account to return False to simulate failure
+    with patch.object(vault, 'add_account', return_value=False):
+        # This should not save and should show a critical error
+        editor._save_profile()
+        
+        # Password should still be in the input field (not saved)
+        assert editor.password_input.text() == "new-secret"
+
+
+def test_profile_editor_shows_save_error_when_save_profile_fails(tmp_path) -> None:
+    """Test that saving with store error shows Save Error message."""
+    from openadmindesk.core.vault_manager import VaultManager
+    from openadmindesk.core.profile_store import ProfileStore
+    from unittest.mock import patch
+
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    profile = Profile(name="Edited", host="edited.example.com", port=22, username="admin")
+    editor = ProfileEditor(profile, store=store, vault_manager=vault)
+    editor.password_input.setText("new-secret")
+    
+    # Mock save_profile to return False to simulate failure
+    with patch.object(store, 'save_profile', return_value=False):
+        # This should not save and should show a critical error
+        editor._save_profile()
+        
+        # Password should still be in the input field (not saved)
+        assert editor.password_input.text() == "new-secret"

@@ -237,3 +237,15 @@ python tools/build.py deb
 - Do not polish themes before terminal architecture is decided.
 - Do not claim MobaXterm parity. Track concrete workflows instead.
 - Do not mark packaging complete based only on scripts existing.
+
+## Unchecked Follow-ups
+
+- [ ] **ProfileEditor**: vault-before-validation/orphan transaction ordering - need to ensure that when a vault operation fails, the profile state is not left in an inconsistent state, and that the transaction ordering is properly handled to prevent orphaned operations.
+
+## Do Not Do Yet
+
+- Do not add FTP, Serial, WSL, split panes, bookmarks, or macro improvements
+  until Phases 0-3 are done.
+- Do not polish themes before terminal architecture is decided.
+- Do not claim MobaXterm parity. Track concrete workflows instead.
+- Do not mark packaging complete based only on scripts existing.
