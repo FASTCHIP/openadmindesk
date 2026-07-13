@@ -251,32 +251,56 @@ class VaultManager:
         """Add an account to the vault."""
         if not self._is_unlocked:
             return False
-        
+
+        # Create a copy of the account to avoid mutating the original
+        account_copy = Account(**account.__dict__)
+
+        # Snapshot current accounts before mutation
+        original_accounts = self._vault_data["accounts"][:]
+
         try:
-            # Encrypt sensitive data
-            if account.password:
-                iv, ciphertext = self._encrypt_data(account.password)
-                account.password = f"{iv}:{ciphertext}"
-            
-            if account.private_key:
-                iv, ciphertext = self._encrypt_data(account.private_key)
-                account.private_key = f"{iv}:{ciphertext}"
-            
-            if account.private_key_passphrase:
-                iv, ciphertext = self._encrypt_data(account.private_key_passphrase)
-                account.private_key_passphrase = f"{iv}:{ciphertext}"
-            
-            # Add to vault data
-            self._vault_data["accounts"].append(account.__dict__)
-            
+            # Encrypt sensitive data in the copy only
+            if account_copy.password:
+                iv, ciphertext = self._encrypt_data(account_copy.password)
+                account_copy.password = f"{iv}:{ciphertext}"
+
+            if account_copy.private_key:
+                iv, ciphertext = self._encrypt_data(account_copy.private_key)
+                account_copy.private_key = f"{iv}:{ciphertext}"
+
+            if account_copy.private_key_passphrase:
+                iv, ciphertext = self._encrypt_data(account_copy.private_key_passphrase)
+                account_copy.private_key_passphrase = f"{iv}:{ciphertext}"
+
+            # Upsert by account.id: if ID exists replace exactly that entry; else append
+            account_id = account_copy.id
+            found = False
+            for i, acc_data in enumerate(self._vault_data["accounts"]):
+                if acc_data.get("id") == account_id:
+                    self._vault_data["accounts"][i] = account_copy.__dict__
+                    found = True
+                    break
+
+            # If not found, append the new account
+            if not found:
+                self._vault_data["accounts"].append(account_copy.__dict__)
+
             # Save the vault
-            self._save_vault()
-            
-            # Clear cache since vault data changed
+            save_success = self._save_vault()
+
+            if not save_success:
+                # Restore snapshot on failure
+                self._vault_data["accounts"] = original_accounts
+                logger.warning(f"Failed to save vault for account ID {account_id}, changes reverted")
+                return False
+
+            # Clear cache only on successful save
             self._clear_cache()
-            
+
             return True
         except Exception as e:
+            # Restore snapshot on failure - ensure original_accounts is available
+            self._vault_data["accounts"] = original_accounts
             logger.error(f"Failed to add account to vault: {e}")
             return False
     
