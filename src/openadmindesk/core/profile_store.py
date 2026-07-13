@@ -144,39 +144,54 @@ class ProfileStore:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
 
-    def _validate_profile_before_save(self, profile: Profile) -> bool:
-        """Validate profile credentials before saving to database.
+    def _validate_profile_secrets(self, profile: Profile) -> tuple[bool, Optional[str]]:
+        """Validate profile secrets before saving to database.
 
         Returns:
-            bool: True if validation passes (even with warnings), False if critical validation fails
+            tuple[bool, Optional[str]]: (is_valid, error_message) where:
+            - is_valid: True if validation passes, False if critical validation fails
+            - error_message: Error message if validation fails, None otherwise
         """
-        # Check if we have password/passphrase without credential_id
+        # Check if we have password without credential_id
         if (profile.password is not None and profile.password != "" and
             (profile.credential_id is None or profile.credential_id == "")):
-            self.logger.warning(
-                "Profile '%s' has password but no credential_id. "
-                "Password will be stored in database without credential reference.",
-                profile.name
+            return False, (
+                f"Profile '{profile.name}' has password but no credential_id. "
+                "Password must be stored in credential vault."
             )
 
+        # Check if we have private key passphrase without credential_id
         if (profile.private_key_passphrase is not None and profile.private_key_passphrase != "" and
             (profile.credential_id is None or profile.credential_id == "")):
-            self.logger.warning(
-                "Profile '%s' has private_key_passphrase but no credential_id. "
-                "Passphrase will be stored in database without credential reference.",
-                profile.name
+            return False, (
+                f"Profile '{profile.name}' has private_key_passphrase but no credential_id. "
+                "Passphrase must be stored in credential vault."
             )
 
         # Check if we have gateway password without credential_id
         if (profile.rdp_gateway_password is not None and profile.rdp_gateway_password != "" and
             (profile.rdp_gateway_credential_id is None or profile.rdp_gateway_credential_id == "")):
-            self.logger.warning(
-                "Profile '%s' has RDP gateway password but no rdp_gateway_credential_id. "
-                "Gateway password will be stored in database without credential reference.",
-                profile.name
+            return False, (
+                f"Profile '{profile.name}' has RDP gateway password but no rdp_gateway_credential_id. "
+                "Gateway password must be stored in credential vault."
             )
 
-        # Validation passes (rejection is False as required)
+        # Validation passes
+        return True, None
+
+    def _validate_profile_before_save(self, profile: Profile) -> bool:
+        """Validate profile credentials before saving to database.
+
+        Returns:
+            bool: True if validation passes, False if critical validation fails
+        """
+        is_valid, error_message = self._validate_profile_secrets(profile)
+        
+        if not is_valid and error_message:
+            self.logger.warning(error_message)
+            return False
+
+        # Validation passes
         return True
 
     def _save_profile_sync(self, profile: Profile) -> bool:
