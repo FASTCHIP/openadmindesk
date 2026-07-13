@@ -245,8 +245,8 @@ Goal: Implement additional security measures after the initial publication.
 - [x] 9.1 ProfileStore rejects new unprotected primary/gateway secrets; credential IDs persist NULL; legacy readable (commits through a8d39c6).
 - [x] 9.2 VaultManager atomic non-mutating account upsert/rollback (ebc4f6b+393d430).
 - [x] 9.3 ProfileEditor requires unlocked vault for entered secrets, upsert/no remove, failure UX, tests (60e8e38 through cbcc3e3/632ca6a).
-- [ ] 9.4 SessionWizard saved modes require unlocked vault + successful vault/store writes; temporary-connect remains memory-only; tests.
-- [ ] 9.5 ProfileEditor vault-before-validation/orphan transaction ordering (move/remove existing standalone unchecked duplicate so one source).
+- [x] 9.4 SessionWizard saved modes require unlocked vault + successful vault/store writes; temporary-connect remains memory-only; tests. (refs ddd6ace+4804fcb+848e64c)
+- [x] 9.5 ProfileEditor and SessionWizard credential UI vault-before-store orphan transaction ordering. (refs ddd6ace+4804fcb+848e64c)
 - [ ] 9.6 Legacy plaintext migration dry-run/backup/report/schema plan.
 - [ ] 9.7 SSH ProxyCommand connect-time revalidation/tests.
 - [ ] 9.8 Passive periodic vault auto-lock UI timer/tests.
@@ -257,5 +257,5 @@ Goal: Implement additional security measures after the initial publication.
 Verification:
 
 ```bash
-pytest tests/test_profile_store.py tests/test_vault_manager.py tests/test_profile_editor.py -q
+pytest tests/test_profile_store.py tests/test_vault_manager.py tests/test_profile_editor.py tests/test_session_wizard.py -q
 ```

@@ -1267,6 +1267,28 @@ This entry fixes the ProfileEditor locked-vault assertion behavior as specified 
 - `ruff check src tests` - passed
 - `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_editor.py -q` - 10 passed
 - `poetry run bandit -r src/ -lll` - passed
+
+## 2026-07-13 (Close SessionWizard credential hardening)
+
+### Implementation
+This entry implements the fix for SessionWizard credential hardening as specified in the audit remediation plan:
+
+1. **Removed redundant code block**: Removed exactly 11 lines of redundant code that was added by commit `0e6cba2` in the `SessionWizard.accept()` method. The removed block handled a case where "vault is unlocked and credential_id exists but password is None", which was redundant with existing logic.
+
+2. **Behavior restored**: The code now returns to the behavior described in commits `4804fcb` and `ddd6ace`, which properly handles credential ID and password handling without the redundant block.
+
+### Files Changed
+- `src/openadmindesk/ui/session_wizard.py` - Removed 11 redundant lines
+
+### Verification
+- `ruff check src/openadmindesk/ui/session_wizard.py` - All checks passed
+- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_session_wizard.py -q` - 23 SessionWizard tests passed
+- All SessionWizard tests pass, confirming functionality preserved
+- No vulnerabilities found by pip-audit
+
+### Known Limitations
+- The redundant code was added in commit `0e6cba2` and was not part of the intended behavior
+- All existing SessionWizard functionality preserved
 - `poetry run pip-audit` - passed
 - `git diff --check` - clean
 
