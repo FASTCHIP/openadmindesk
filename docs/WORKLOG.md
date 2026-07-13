@@ -1259,7 +1259,7 @@ This entry fixes the ProfileEditor locked-vault assertion behavior as specified 
    - Verified that the password/passphrase remains in input fields and profile fields
 
 ### Files Changed
-- `src/openadmindesk/ui/profile_editor.py` - Fixed credential validation logic for locked vault scenarios
+- `tests/test_profile_editor.py` - Fixed G1/G2 assertions for locked vault scenarios
 - `tests/test_profile_editor.py` - Added focused tests G1-G2 to verify locked vault behavior
 
 ### Verification

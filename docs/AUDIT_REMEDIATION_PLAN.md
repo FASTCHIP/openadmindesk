@@ -241,8 +241,7 @@ python tools/build.py deb
 ## Unchecked Follow-ups
 
 - [ ] **ProfileEditor**: vault-before-validation/orphan transaction ordering - need to ensure that when a vault operation fails, the profile state is not left in an inconsistent state, and that the transaction ordering is properly handled to prevent orphaned operations.
-- [ ] **ProfileEditor**: Fixed G1/G2 assertions for locked vault scenarios - tests need to be updated to verify locked vault behavior
-- [ ] **ProfileEditor**: Fixed G1/G2 assertions for locked vault scenarios - tests need to be updated to verify locked vault behavior
+
 
 ## Do Not Do Yet
 
