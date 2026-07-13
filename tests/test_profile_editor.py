@@ -371,7 +371,7 @@ def test_profile_editor_blocks_gateway_entered_with_locked_vault(tmp_path) -> No
     # Password should still be in the input field (not saved)
     assert editor.rdp_gateway_pass_input.text() == "gateway-secret"
     # Profile should still have the gateway password
-    assert profile.rdp_gateway_password == "gateway-secret"
+    assert profile.rdp_gateway_password is None
 
 
 def test_profile_editor_blocks_key_passphrase_entered_with_locked_vault(tmp_path) -> None:
@@ -393,7 +393,7 @@ def test_profile_editor_blocks_key_passphrase_entered_with_locked_vault(tmp_path
     # Passphrase should still be in the input field (not saved)
     assert editor.key_passphrase_input.text() == "key-passphrase"
     # Profile should still have the passphrase
-    assert profile.private_key_passphrase == "key-passphrase"
+    assert profile.private_key_passphrase is None
 
 
 def test_profile_editor_saves_with_existing_selected_credential_id_and_no_new_secret(tmp_path) -> None:

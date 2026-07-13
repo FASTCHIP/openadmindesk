@@ -389,7 +389,7 @@ python3 -m pytest -q                    # 273 passed
   - Added icon_id persistence coverage and ASCII fallback coverage.
 
 - 	tests/test_profile_editor.py
-  - Added coverage for exposing and saving selected session icons.
+  - Production code introduced in 60e8e38, unchanged in 632ca6a.
 
 - 	tests/test_tabbed_workspace.py
   - Added coverage for non-null tab icons and visible close button behavior.
