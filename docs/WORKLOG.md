@@ -1178,3 +1178,37 @@ git diff --check clean after deleting blank EOF
 
 - Monitor GitHub CI for Docker runtime issues
 - Run local Docker smoke test when daemon available
+
+## 2026-07-13 (Implement credential validation and DB handling for Phase 7.1)
+
+### Implementation
+This entry implements task 7.1 of Phase 7 from the audit remediation plan:
+- Added module logger to profile_store.py
+- Implemented validation before DB save:
+  - Non-empty password/private_key_passphrase require credential_id
+  - Non-empty gateway password requires rdp_gateway_credential_id
+  - Rejection is False (validation does not fail, just warns)
+  - One safe parameterized warning is logged
+  - No DB/cache mutation on validation failure
+  - Credential-backed saves persist SQL NULL for password/passphrase/gateway password without mutating caller
+  - Successful save evicts profile cache so immediate load reflects DB NULL
+  - Legacy rows remain readable
+  - Retain schema columns
+  - Keep 32-column mapping correct
+
+### Files Changed
+- `src/openadmindesk/core/profile_store.py` - Added module logger, validation logic, and updated save behavior
+- `tests/test_profile_store.py` - Added 5 new behavior tests to verify credential validation and DB handling
+
+### Verification
+- `python3 -m py_compile src/openadmindesk/core/profile_store.py` - passed
+- `ruff check src tests` - passed
+- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_store.py -q` - 9 passed
+- `poetry run bandit -r src/ -lll` - passed
+- `poetry run pip-audit` - passed
+- `git diff --check` - clean
+
+### Known Limitations
+- All tests pass with clean verification
+- No vulnerabilities found by pip-audit
+

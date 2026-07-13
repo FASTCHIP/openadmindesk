@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import time
 import asyncio
+import logging
 from typing import Optional, List, Dict
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
@@ -17,17 +18,17 @@ class Folder:
     def __init__(self, name: str, parent: Optional[str] = None):
         self.name = name
         self.parent = parent  # parent folder name or None for root
-    
+
     def __repr__(self) -> str:
         return f"Folder({self.name!r})"
 
 
 class ProfileStore:
     """SQLite-based profile storage with caching and async support."""
-    
+
     def __init__(self, db_path: str = "profiles.db", cache_ttl: int = 300) -> None:
         """Initialize the profile store.
-        
+
         Args:
             db_path: Path to SQLite database file
             cache_ttl: Time-to-live for cache entries in seconds (default: 5 minutes)
@@ -36,22 +37,25 @@ class ProfileStore:
         self.cache_ttl = cache_ttl
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="db_async")
         self._init_database()
-        
+
         # Cache for loaded profiles
         self._profile_cache: Dict[str, Dict] = {}
         self._cache_lock = Lock()
-        
+
         # Cache for all profiles list
         self._all_profiles_cache: Optional[List[Profile]] = None
         self._all_profiles_cache_time: float = 0
-    
+
+        # Module logger
+        self.logger = logging.getLogger(__name__)
+
     def _get_connection(self) -> sqlite3.Connection:
         """Create a new SQLite connection (thread-safe)."""
         uri = self.db_path.startswith("file:")
         conn = sqlite3.connect(self.db_path, check_same_thread=False, uri=uri)
         conn.row_factory = sqlite3.Row
         return conn
-    
+
     def _init_database_sync(self) -> None:
         """Initialize the database synchronously."""
         # For in-memory databases, we need to ensure the connection persists
@@ -60,7 +64,7 @@ class ProfileStore:
         if self.db_path == ':memory:':
             actual_path = 'file::memory:?cache=shared'
             self.db_path = actual_path
-        
+
         with self._get_connection() as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS profiles (
@@ -123,7 +127,7 @@ class ProfileStore:
             self._migrate_add_column(conn, "profiles", "last_connected", "TEXT")
             self._migrate_add_column(conn, "profiles", "last_error", "TEXT")
             self._migrate_add_column(conn, "profiles", "last_duration", "REAL")
-    
+
     def _init_database(self) -> None:
         """Initialize the database."""
         self._init_database_sync()
@@ -134,75 +138,119 @@ class ProfileStore:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
         except Exception:
             pass  # Column already exists
-    
+
     async def _run_db(self, func, *args, **kwargs):
         """Run a database operation in the thread pool."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
-    
+
+    def _validate_profile_before_save(self, profile: Profile) -> bool:
+        """Validate profile credentials before saving to database.
+
+        Returns:
+            bool: True if validation passes (even with warnings), False if critical validation fails
+        """
+        # Check if we have password/passphrase without credential_id
+        if (profile.password is not None and profile.password != "" and
+            (profile.credential_id is None or profile.credential_id == "")):
+            self.logger.warning(
+                "Profile '%s' has password but no credential_id. "
+                "Password will be stored in database without credential reference.",
+                profile.name
+            )
+
+        if (profile.private_key_passphrase is not None and profile.private_key_passphrase != "" and
+            (profile.credential_id is None or profile.credential_id == "")):
+            self.logger.warning(
+                "Profile '%s' has private_key_passphrase but no credential_id. "
+                "Passphrase will be stored in database without credential reference.",
+                profile.name
+            )
+
+        # Check if we have gateway password without credential_id
+        if (profile.rdp_gateway_password is not None and profile.rdp_gateway_password != "" and
+            (profile.rdp_gateway_credential_id is None or profile.rdp_gateway_credential_id == "")):
+            self.logger.warning(
+                "Profile '%s' has RDP gateway password but no rdp_gateway_credential_id. "
+                "Gateway password will be stored in database without credential reference.",
+                profile.name
+            )
+
+        # Validation passes (rejection is False as required)
+        return True
+
     def _save_profile_sync(self, profile: Profile) -> bool:
         """Save a profile to the database synchronously."""
         try:
+            # Validate before saving
+            if not self._validate_profile_before_save(profile):
+                return False
+
+            # For credential-backed saves, we want to persist SQL NULL for passwords/passphrases
+            # without mutating the caller's profile object
+            # If credential_id is set, store NULL in DB for all passwords; otherwise, store the actual values
+            password_to_save = None if profile.credential_id else profile.password
+            private_key_passphrase_to_save = None if profile.credential_id else profile.private_key_passphrase
+            rdp_gateway_password_to_save = None if profile.credential_id else profile.rdp_gateway_password
+
             with self._get_connection() as conn:
                 conn.execute("""
-                    INSERT OR REPLACE INTO profiles 
+                    INSERT OR REPLACE INTO profiles
                     (name, host, port, username, session_type, parent_folder, credential_id,
-                     password, private_key_path, private_key_passphrase,
-                     use_ssh_agent, compression, keep_alive, ssh_config, proxy_command,
-                    rdp_drive_redirection, rdp_drive_path,
-                    rdp_printer_redirection, rdp_multimon,
-                    rdp_gateway, rdp_gateway_username, rdp_gateway_password,
-                    rdp_gateway_credential_id, notes,
-                    created_at, updated_at,
-                    favorite, tags, icon_id, last_connected, last_error, last_duration)
+                      password, private_key_path, private_key_passphrase,
+                      use_ssh_agent, compression, keep_alive, ssh_config, proxy_command,
+                     rdp_drive_redirection, rdp_drive_path,
+                     rdp_printer_redirection, rdp_multimon,
+                     rdp_gateway, rdp_gateway_username, rdp_gateway_password,
+                     rdp_gateway_credential_id, notes,
+                     created_at, updated_at,
+                     favorite, tags, icon_id, last_connected, last_error, last_duration)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?)
                 """, (
                     profile.name, profile.host, profile.port, profile.username,
                     profile.session_type.value, profile.parent_folder,
                     profile.credential_id,
-                    profile.password, profile.private_key_path,
-                    profile.private_key_passphrase,
+                    password_to_save, profile.private_key_path,
+                    private_key_passphrase_to_save,
                     int(profile.use_ssh_agent),
                     int(profile.compression), int(profile.keep_alive), profile.ssh_config,
                     profile.proxy_command,
                     int(profile.rdp_drive_redirection), profile.rdp_drive_path,
                     int(profile.rdp_printer_redirection), int(profile.rdp_multimon),
                     profile.rdp_gateway, profile.rdp_gateway_username,
-                    profile.rdp_gateway_password, profile.rdp_gateway_credential_id,
+                    rdp_gateway_password_to_save, profile.rdp_gateway_credential_id,
                     profile.notes,
                     profile.created_at, profile.updated_at,
                     int(profile.favorite), profile.tags, profile.icon_id,
                     profile.last_connected, profile.last_error, profile.last_duration
                 ))
-            
-            # Update cache
-            self._update_cache(profile)
+
+            # Update cache - evict the profile from cache so immediate load reflects DB values
+            self._remove_from_cache(profile.name)
             return True
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to save profile: {e}")
+            self.logger.error(f"Failed to save profile: {e}")
             return False
-    
+
     def save_profile(self, profile: Profile) -> bool:
         """Save a profile to the database."""
         return self._save_profile_sync(profile)
-    
+
     async def save_profile_async(self, profile: Profile) -> bool:
         """Save a profile to the database asynchronously."""
         return await self._run_db(self._save_profile_sync, profile)
-    
+
     def _load_profile_sync(self, name: str) -> Optional[Profile]:
         """Load a profile from the database synchronously."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.execute(
-                    "SELECT * FROM profiles WHERE name = ?", 
+                    "SELECT * FROM profiles WHERE name = ?",
                     (name,)
                 )
                 row = cursor.fetchone()
-                
+
                 if row:
                     profile = self._row_to_profile(row)
                     # Cache the profile
@@ -214,126 +262,126 @@ class ProfileStore:
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to load profile: {e}")
             return None
-    
+
     def load_profile(self, name: str) -> Optional[Profile]:
         """Load a profile from the database with caching (sync)."""
         # Check cache first
         cached_profile = self._get_from_cache(name)
         if cached_profile:
             return cached_profile
-        
+
         return self._load_profile_sync(name)
-    
+
     async def load_profile_async(self, name: str) -> Optional[Profile]:
         """Load a profile from the database asynchronously."""
         # Check cache first
         cached_profile = self._get_from_cache(name)
         if cached_profile:
             return cached_profile
-        
+
         return await self._run_db(self._load_profile_sync, name)
-    
+
     def _load_all_profiles_sync(self) -> List[Profile]:
         """Load all profiles from the database synchronously."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.execute("SELECT * FROM profiles")
                 rows = cursor.fetchall()
-                
+
                 profiles = []
                 for row in rows:
                     profile = self._row_to_profile(row)
                     profiles.append(profile)
                     # Cache individual profiles too
                     self._add_to_cache(profile)
-                
+
                 return profiles
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to load all profiles: {e}")
             return []
-    
+
     def load_all_profiles(self) -> List[Profile]:
         """Load all profiles from the database with caching (sync)."""
         current_time = time.time()
-        
+
         # Check if cache is still valid
-        if (self._all_profiles_cache is not None and 
+        if (self._all_profiles_cache is not None and
             current_time - self._all_profiles_cache_time < self.cache_ttl):
             return self._all_profiles_cache.copy()
-        
+
         profiles = self._load_all_profiles_sync()
-        
+
         # Update all profiles cache
         with self._cache_lock:
             self._all_profiles_cache = profiles.copy()
             self._all_profiles_cache_time = current_time
-        
+
         return profiles
-    
+
     async def load_all_profiles_async(self) -> List[Profile]:
         """Load all profiles from the database asynchronously."""
         current_time = time.time()
-        
+
         # Check if cache is still valid
-        if (self._all_profiles_cache is not None and 
+        if (self._all_profiles_cache is not None and
             current_time - self._all_profiles_cache_time < self.cache_ttl):
             return self._all_profiles_cache.copy()
-        
+
         profiles = await self._run_db(self._load_all_profiles_sync)
-        
+
         # Update all profiles cache
         with self._cache_lock:
             self._all_profiles_cache = profiles.copy()
             self._all_profiles_cache_time = current_time
-        
+
         return profiles
-    
+
     def _delete_profile_sync(self, name: str) -> bool:
         """Delete a profile from the database synchronously."""
         try:
             with self._get_connection() as conn:
                 cursor = conn.execute(
-                    "DELETE FROM profiles WHERE name = ?", 
+                    "DELETE FROM profiles WHERE name = ?",
                     (name,)
                 )
                 deleted = cursor.rowcount > 0
-                
+
                 if deleted:
                     # Remove from cache
                     self._remove_from_cache(name)
                     # Invalidate all profiles cache
                     self._all_profiles_cache = None
-                
+
                 return deleted
         except Exception:
             return False
-    
+
     def delete_profile(self, name: str) -> bool:
         """Delete a profile from the database."""
         return self._delete_profile_sync(name)
-    
+
     async def delete_profile_async(self, name: str) -> bool:
         """Delete a profile from the database asynchronously."""
         return await self._run_db(self._delete_profile_sync, name)
-    
+
     def _row_to_profile(self, row) -> Profile:
         """Convert a database row to a Profile object."""
         is_row_object = hasattr(row, 'keys')
-        
+
         name = row['name'] if is_row_object else row[1]
         host = row['host'] if is_row_object else row[2]
         port = row['port'] if is_row_object else row[3]
         username = row['username'] if is_row_object else row[4]
-        
+
         # Parse session_type
         st_raw = row['session_type'] if is_row_object else row[5]
         try:
             session_type = SessionType(st_raw) if st_raw else SessionType.SSH
         except ValueError:
             session_type = SessionType.SSH
-        
+
         parent_folder = row['parent_folder'] if is_row_object else row[6]
         credential_id = row['credential_id'] if is_row_object else row[7]
 
@@ -397,7 +445,7 @@ class ProfileStore:
             last_error=last_error,
             last_duration=last_duration,
         )
-    
+
     def _add_to_cache(self, profile: Profile) -> None:
         """Add a profile to the cache."""
         with self._cache_lock:
@@ -405,7 +453,7 @@ class ProfileStore:
                 'profile': profile,
                 'timestamp': time.time()
             }
-    
+
     def _get_from_cache(self, name: str) -> Optional[Profile]:
         """Get a profile from cache if it's still valid."""
         with self._cache_lock:
@@ -418,12 +466,12 @@ class ProfileStore:
                     # Remove expired entry
                     del self._profile_cache[name]
             return None
-    
+
     def _remove_from_cache(self, name: str) -> None:
         """Remove a profile from cache."""
         with self._cache_lock:
             self._profile_cache.pop(name, None)
-    
+
     def _update_cache(self, profile: Profile) -> None:
         """Update cache with a profile (add or update existing)."""
         with self._cache_lock:
@@ -433,14 +481,14 @@ class ProfileStore:
             }
             # Invalidate all profiles cache
             self._all_profiles_cache = None
-    
+
     def clear_cache(self) -> None:
         """Clear all cached profiles."""
         with self._cache_lock:
             self._profile_cache.clear()
             self._all_profiles_cache = None
             self._all_profiles_cache_time = 0
-    
+
     def get_cache_stats(self) -> Dict[str, int]:
         """Get cache statistics."""
         with self._cache_lock:
@@ -448,7 +496,7 @@ class ProfileStore:
                 'cached_profiles': len(self._profile_cache),
                 'all_profiles_cached': self._all_profiles_cache is not None
             }
-    
+
     def close(self) -> None:
         """Shutdown the thread pool executor."""
         if self._executor:
