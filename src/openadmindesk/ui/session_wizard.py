@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 from PySide6.QtWidgets import (
@@ -225,13 +225,24 @@ class SessionWizard(QWizard):
                 port=profile.port,
                 service_type=profile.session_type.value,
             )
-            # If credential_id exists, preserve it and other fields
+            # If credential_id exists, get existing account and preserve its private_key/private_key_passphrase and other fields
             if credential_id:
-                account.id = credential_id
+                existing_account = self.vault.get_account(credential_id)
+                if existing_account:
+                    # Preserve existing account fields that weren't provided
+                    replace_fields = {}
+                    if existing_account.private_key is not None:
+                        replace_fields['private_key'] = existing_account.private_key
+                    if existing_account.private_key_passphrase is not None:
+                        replace_fields['private_key_passphrase'] = existing_account.private_key_passphrase
+                    if credential_id is not None:
+                        replace_fields['id'] = credential_id
+                    if replace_fields:
+                        account = replace(account, **replace_fields)
             try:
                 if self.vault.add_account(account):
                     # Successfully added to vault, update profile
-                    profile = profile.replace(credential_id=account.id, password=None)
+                    profile = replace(profile, credential_id=account.id, password=None)
                 else:
                     # Vault error - return without saving
                     QMessageBox.critical(
@@ -302,18 +313,14 @@ class SessionWizard(QWizard):
         
         # Return password in memory unless existing credential ID is selected with empty password
         # This makes _build_profile side-effect free
+        # If credential_id exists and password is empty, password should be None (preserve existing)
+        # If credential_id is None and password is provided, password should be in memory
+        # If credential_id exists and password is provided, password should be in memory
+        # If no credential_id and no password, password should be None
         if credential_id and not password:
-            # Existing credential selected with no password - return None for password
             password = None
-        elif not credential_id and password:
-            # New credential with password - return password in memory
-            pass
-        elif credential_id and password:
-            # Existing credential with new password - return password in memory
-            pass
-        else:
-            # No credential ID and no password - return None for password
-            password = None
+        # All other cases (new credential with password, existing credential with new password) 
+        # keep password as-is (in memory)
             
         # Common fields
         kwargs: dict = dict(

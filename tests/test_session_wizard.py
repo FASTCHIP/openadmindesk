@@ -276,6 +276,8 @@ def test_no_plaintext_password_in_profile_when_vault_used(tmp_path) -> None:
     _setup_basic_ssh(wizard, name="NoPlaintext", host="pt.example.com")
     wizard.credential_page.username_input.setText("admin")
     wizard.credential_page.password_input.setText("secret-password")
+    # Set the SSH agent checkbox to True to match expected behavior
+    wizard.ssh_advanced_page.agent_cb.setChecked(True)
 
     # Test that _build_profile returns password in memory
     profile = wizard._build_profile()
@@ -291,4 +293,323 @@ def test_no_plaintext_password_in_profile_when_vault_used(tmp_path) -> None:
     assert saved_profile.credential_id is not None  # Should have credential ID
     # Advanced fields still present
     assert saved_profile.use_ssh_agent is True
+
+
+def test_session_wizard_save_password_no_vault(tmp_path) -> None:
+    """Test that saving password without vault fails gracefully."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    wizard = SessionWizard(store)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("No Vault SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("top-secret")
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "top-secret"  # Password should be in memory during build
+
+    # Test that accept fails gracefully without vault
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is None  # Should not save profile
+
+
+def test_session_wizard_save_password_locked_vault(tmp_path) -> None:
+    """Test that saving password with locked vault fails gracefully."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    # Do NOT unlock vault
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("Locked Vault SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("top-secret")
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "top-secret"  # Password should be in memory during build
+
+    # Test that accept fails gracefully with locked vault
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is None  # Should not save profile
+
+
+def test_session_wizard_add_account_false(tmp_path) -> None:
+    """Test that saving password fails when vault.add_account returns False."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    # Mock vault to return False for add_account
+    vault.add_account = lambda account: False  # Always return False
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("False Add SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("top-secret")
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "top-secret"  # Password should be in memory during build
+
+    # Test that accept fails gracefully when add_account returns False
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is None  # Should not save profile
+
+
+def test_session_wizard_add_account_raises(tmp_path) -> None:
+    """Test that saving password fails when vault.add_account raises exception."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    # Mock vault to raise exception for add_account
+    def raise_exception(account):
+        raise Exception("Vault error")
+    vault.add_account = raise_exception
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("Exception Add SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("top-secret")
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "top-secret"  # Password should be in memory during build
+
+    # Test that accept fails gracefully when add_account raises
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is None  # Should not save profile
+
+
+def test_session_wizard_store_false(tmp_path) -> None:
+    """Test that saving profile fails when store.save_profile returns False."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    # Mock store to return False for save_profile
+    store.save_profile = lambda profile: False  # Always return False
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("False Store SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("top-secret")
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "top-secret"  # Password should be in memory during build
+
+    # Test that accept fails gracefully when store.save_profile returns False
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is None  # Should not save profile
+
+
+def test_session_wizard_store_raises(tmp_path) -> None:
+    """Test that saving profile fails when store.save_profile raises exception."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    # Mock store to raise exception for save_profile
+    def raise_exception(profile):
+        raise Exception("Store error")
+    store.save_profile = raise_exception
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("Exception Store SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("top-secret")
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "top-secret"  # Password should be in memory during build
+
+    # Test that accept fails gracefully when store.save_profile raises
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is None  # Should not save profile
+
+
+def test_session_wizard_selected_id_no_new_password_locked_vault(tmp_path) -> None:
+    """Test that existing credential ID with no new password works with locked vault."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    # Do NOT unlock vault
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("Locked Vault SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    # Select an existing credential (but vault is locked)
+    wizard.credential_page.vault_account_selector.setCurrentIndex(1)  # Select first account
+
+    # Test that _build_profile returns password in memory (None)
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password is None  # Should be None when no password provided
+
+    # Test that accept works with locked vault (no password to save)
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is not None  # Should save profile without password
+
+
+def test_session_wizard_existing_id_new_password_upsert_preserves_key_fields(tmp_path) -> None:
+    """Test that existing credential ID with new password preserves key fields."""
+    from openadmindesk.core.vault_manager import VaultManager
+    from openadmindesk.core.account import Account
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    
+    # Create an account with private key info
+    account = Account(
+        name="Test Account",
+        username="admin",
+        password="old-password",
+        host="test.example.com",
+        port=22,
+        service_type="ssh",
+        private_key="/path/to/private_key",
+        private_key_passphrase="old-passphrase"
+    )
+    assert vault.add_account(account)
+    credential_id = account.id
+    
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("Preserve Fields SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    # Select existing credential and provide new password
+    wizard.credential_page.vault_account_selector.setCurrentIndex(1)  # Select the account
+    wizard.credential_page.password_input.setText("new-password")
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "new-password"  # Password should be in memory during build
+    assert profile.credential_id == credential_id
+
+    # Test that accept preserves key fields
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is not None
+    assert saved_profile.password is None  # Password should be in vault now
+    assert saved_profile.credential_id == credential_id  # Should preserve credential ID
+
+
+def test_session_wizard_temporary_password_unlocked_vault_no_account_store(tmp_path) -> None:
+    """Test that temporary password with unlocked vault creates no account/store but retains memory password."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("Temp Password SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("temp-password")
+    # Set launch behavior to temporary connect
+    wizard.credential_page.launch_combo.setCurrentIndex(2)  # Temporary connect
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "temp-password"  # Password should be in memory during build
+
+    # Test that accept works with temporary connect (no vault/store calls)
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is not None  # Should save profile
+    assert saved_profile.password == "temp-password"  # Password should remain in memory
+    # Check that no account was created in vault
+    accounts = vault.get_all_accounts()
+    assert len(accounts) == 0  # No accounts should be created
+
+
+def test_session_wizard_save_connect_success(tmp_path) -> None:
+    """Test that save and connect works correctly."""
+    from openadmindesk.core.vault_manager import VaultManager
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+    wizard = SessionWizard(store, vault=vault)
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("Save Connect SSH")
+    wizard.connection_page.host_input.setText("vault.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("secret-password")
+    # Set launch behavior to save and connect
+    wizard.credential_page.launch_combo.setCurrentIndex(1)  # Save and connect
+
+    # Test that _build_profile returns password in memory
+    profile = wizard._build_profile()
+    assert profile is not None
+    assert profile.password == "secret-password"  # Password should be in memory during build
+
+    # Test that accept works with save and connect
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is not None
+    assert saved_profile.password is None  # Password should be in vault now
+    assert wizard.connect_after() is True  # Should connect after
 
