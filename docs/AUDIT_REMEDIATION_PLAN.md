@@ -242,9 +242,9 @@ python tools/build.py deb
 
 Goal: Implement additional security measures after the initial publication.
 
-- [ ] 9.1 ProfileStore rejects new unprotected primary/gateway secrets; credential IDs persist NULL; legacy readable (commits through a8d39c6).
-- [ ] 9.2 VaultManager atomic non-mutating account upsert/rollback (ebc4f6b+393d430).
-- [ ] 9.3 ProfileEditor requires unlocked vault for entered secrets, upsert/no remove, failure UX, tests (60e8e38 through cbcc3e3/632ca6a).
+- [x] 9.1 ProfileStore rejects new unprotected primary/gateway secrets; credential IDs persist NULL; legacy readable (commits through a8d39c6).
+- [x] 9.2 VaultManager atomic non-mutating account upsert/rollback (ebc4f6b+393d430).
+- [x] 9.3 ProfileEditor requires unlocked vault for entered secrets, upsert/no remove, failure UX, tests (60e8e38 through cbcc3e3/632ca6a).
 - [ ] 9.4 SessionWizard saved modes require unlocked vault + successful vault/store writes; temporary-connect remains memory-only; tests.
 - [ ] 9.5 ProfileEditor vault-before-validation/orphan transaction ordering (move/remove existing standalone unchecked duplicate so one source).
 - [ ] 9.6 Legacy plaintext migration dry-run/backup/report/schema plan.
@@ -257,13 +257,5 @@ Goal: Implement additional security measures after the initial publication.
 Verification:
 
 ```bash
-# Placeholder for verification commands once tasks are implemented
+pytest tests/test_profile_store.py tests/test_vault_manager.py tests/test_profile_editor.py -q
 ```
-
-## Do Not Do Yet
-
-- Do not add FTP, Serial, WSL, split panes, bookmarks, or macro improvements
-  until Phases 0-3 are done.
-- Do not polish themes before terminal architecture is decided.
-- Do not claim MobaXterm parity. Track concrete workflows instead.
-- Do not mark packaging complete based only on scripts existing.

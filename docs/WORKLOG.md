@@ -1299,6 +1299,9 @@ This entry implements the required credential validation and DB handling for Pro
 - `poetry run pip-audit` - passed
 - `git diff --check` - clean
 
+### Follow-up Actions
+- The standalone follow-up for vault-before-validation/orphan transaction ordering has been moved to task 9.5.
+
 ## 2026-07-13 (Add Post-publication Security Hardening Plan)
 
 ### Implementation
