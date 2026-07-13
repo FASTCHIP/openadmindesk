@@ -260,6 +260,17 @@ class SessionWizard(QWizard):
                 )
                 return
                 
+        # If vault is unlocked and credential_id exists but password is None, 
+        # we should still save the profile with credential_id and password=None
+        # This handles the case where user selected an existing credential 
+        # but didn't enter a new password (password should be None in profile)
+        if credential_id and not password and self.vault and self.vault.is_unlocked():
+            # Check if the credential exists in the vault
+            existing_account = self.vault.get_account(credential_id)
+            if existing_account:
+                # Preserve the credential_id and set password to None
+                profile = replace(profile, password=None)
+                
         # If store.save_profile fails, return without saving
         try:
             if not self.store.save_profile(profile):
