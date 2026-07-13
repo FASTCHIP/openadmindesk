@@ -383,44 +383,4 @@ def test_add_account_runtime_error_during_update(tmp_path, monkeypatch) -> None:
     retrieved_account = manager.get_account("test_id")
     assert retrieved_account is not None
 
-    """Test that add_account handles RuntimeError during UPDATE and reverts changes."""
-    vault_path = tmp_path / "vault.json"
-    manager = VaultManager(str(vault_path))
-    assert manager.setup_master_password("testpassword123")
-    assert manager.unlock("testpassword123")
-
-    # Add initial account
-    original_account = Account(
-        id="test_id",
-        name="Original Account",
-        username="user1",
-        password="password1",
-        host="192.168.1.1",
-        port=22
-    )
-
-    success = manager.add_account(original_account)
-    assert success
-
-    # Verify account exists
-    accounts = manager.get_all_accounts()
-    assert len(accounts) == 1
-    assert accounts[0].name == "Original Account"
-
-    # Mock _save_vault to raise RuntimeError to simulate save failure
-    def raise_runtime_error():
-        raise RuntimeError("Simulated save error")
-    
-    monkeypatch.setattr(manager, '_save_vault', raise_runtime_error)
-
-    # Try to update the existing account (should fail with RuntimeError)
-    updated_account = Account(
-        id="test_id",
-        name="Updated Account",
-        username="user1",
-        password="password1",
-        host="192.168.1.1",
-        port=22
-    )
-
 
