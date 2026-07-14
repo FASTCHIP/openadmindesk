@@ -83,3 +83,31 @@ Consequences:
 - SFTP may prompt/connect separately from an SSH terminal tab.
 - Profile and credential handling must remain consistent so both sessions use the same metadata and vault references.
 - A future optimization may share a Paramiko transport if lifecycle, host-key, cancellation, and close semantics are tested.
+
+## 2026-07-14 - Keep legacy plaintext secret columns in current schema
+
+Decision: Retain the existing `password`, `private_key_passphrase`, and
+`rdp_gateway_password` columns in the `profiles` SQLite table.  All new saves
+and the compensated secret migration (Phase 9.6c) write SQL `NULL` into those
+columns; legacy rows remain readable for backward-compatible migration.  Do
+not drop the columns until all of the following are true:
+- a versioned schema migration mechanism exists,
+- adoption evidence shows no pre-migration profiles remain in active databases,
+- a tested rollback path exists,
+- the format version is bumped.
+
+Reason: Dropping columns early would silently destroy data for users who have
+not yet run the migration tool.  Keeping the columns allows safe partial
+adoption: a user can migrate one profile at a time, and the old column values
+remain visible for comparison until the user explicitly confirms removal.
+
+Consequences:
+- The `ProfileStore` row-to-profile mapping and column count (33) are stable.
+- No schema migration is required for this phase.
+- The migration tool (`migrate_profile_secrets.py`) reads legacy columns,
+  migrates to vault, and writes NULL — making the profile a non-migrated
+  column has no value.
+- A future major format version may drop the columns after confirming no
+  legacy rows remain.
+- This decision is revisited in Phase 9.6d and recorded here for permanent
+  reference.

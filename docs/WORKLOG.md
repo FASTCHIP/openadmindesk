@@ -1899,3 +1899,73 @@ git diff --check                        # clean
  M src/openadmindesk/core/profile_secret_migration.py
  M tests/test_profile_secret_migration.py
 ```
+
+---
+
+## 2026-07-14 (Phase9.6d: CLI activation and schema-retirement decision)
+
+### Implementation
+
+1. **`tools/migrate_profile_secrets.py`**:
+   - Activated live migration path with gating:
+     - `--confirm-cleartext-removal` required before any vault/env access
+     - Reads vault password from `OPENADMINDESK_VAULT_PASSWORD` env var
+     - Supports `--vault` path and `--backup-dir` arguments
+     - Migrates primary and gateway secrets into vault
+     - Prints text or JSON result with counts, backup paths, hashes
+     - Returns exit 0 on success, 1 on vault/conflict error, 2 on missing env/confirmation
+
+2. **`tests/test_profile_secret_migration.py`**:
+   - Fixed `test_cli_migration_missing_env` to accept `monkeypatch` and call
+     `delenv("OPENADMINDESK_VAULT_PASSWORD", raising=False)` before `main()`
+   - Updated `test_cli_non_dry_run_no_confirmation` to check exit 2 with
+     confirm requirement message
+   - Added 6 new live migration CLI tests:
+     - `test_cli_migration_missing_env` — env not set → exit 2, DB unchanged
+     - `test_cli_migration_wrong_password` — wrong vault password → exit 1
+     - `test_cli_migration_text_success` — full migration with text output
+     - `test_cli_migration_json_success` — full migration with JSON output
+     - `test_cli_migration_conflict` — vault vs DB conflict → exit 1, no secrets in output
+
+3. **`docs/DECISIONS.md`**:
+   - Added ADR "Keep legacy plaintext secret columns in current schema"
+   - Rationale: backward-compatible read/migration; NULL on new saves; do not
+     drop until versioned migration mechanism, adoption evidence, tested rollback
+   - Revisit future major format
+
+### Verification Commands
+
+```bash
+python3 -m py_compile tools/migrate_profile_secrets.py                   # PASS
+python3 -m py_compile src/openadmindesk/core/profile_secret_migration.py # PASS
+python3 -m py_compile tests/test_profile_secret_migration.py             # PASS
+ruff check --no-cache src tools tests                                    # exit 0, all checks passed
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_secret_migration.py -v --tb=short  # 50/50 passed
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider  # 381/381 passed
+python3 -m bandit -r src/ -lll                                           # exit 0, no high-severity issues, 1 suppression respected
+poetry run pip-audit                                                    # exit 0, no known vulnerabilities
+git diff --check                                                         # clean
+```
+
+### Test Results
+
+- Targeted migration tests: 50/50 passed
+- Full headless pytest: 381/381 passed (previously 376)
+- Bandit high-severity: 0 issues
+- pip-audit: No known vulnerabilities found in project dependencies
+
+### Files Changed
+
+- `docs/AUDIT_REMEDIATION_PLAN.md` — Marked 9.6d [x]
+- `docs/DECISIONS.md` — Added ADR for keeping legacy plaintext secret columns
+- `docs/WORKLOG.md` — Added this entry
+- `tests/test_profile_secret_migration.py` — Fixed env test, added 6 live migration CLI tests
+- `tools/migrate_profile_secrets.py` — Activated live migration path with gating
+
+### Known Limitations
+
+- Migration conflict detection uses exact secret comparison (no fuzzy matching)
+- No password expiry or rotation workflow (Phase 9.7+)
+- Vault KDF remains PBKDF2 (Argon2id planned in Phase 9.9)
+- Legacy secret columns retained in schema (by design, see DECISIONS.md ADR)
+- No automated rollback of backups if migration succeeds partially (manual restore via backup files)

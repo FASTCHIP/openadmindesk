@@ -411,18 +411,34 @@ def test_cli_dry_run_no_password(tmp_path, capsys) -> None:
     assert "Test" in captured.out
 
 
-def test_cli_non_dry_run_fails_closed(tmp_path, capsys) -> None:
-    """CLI non-dry-run prints disabled message to stderr and returns 1."""
+def test_cli_non_dry_run_no_confirmation(tmp_path, capsys) -> None:
+    """No --confirm-cleartext-removal → exit 2 before env/vault access,
+    DB unchanged."""
     store = ProfileStore(str(tmp_path / "profiles.db"))
-    store.save_profile(Profile(name="Test", host="example.com"))
+    store.save_profile(Profile(name="Test", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret", "Test"),
+        )
+        conn.commit()
 
-    # No vault password needed -- fails closed before any vault interaction
+    # No vault password needed -- fails closed before any vault/env interaction
     exit_code = main(["--db", store.db_path])
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "disabled" in captured.err.lower()
-    assert "dry-run" in captured.err.lower()
+    assert exit_code == 2
+    assert "confirm-cleartext-removal" in captured.err.lower()
+
+    # DB unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Test",)
+        ).fetchone()
+        assert row[0] == "secret"
+
+    # No backup artifacts created
+    assert not (tmp_path / "backups").exists()
 
 
 def test_cli_dry_run_db_unchanged(tmp_path, capsys) -> None:
@@ -449,6 +465,266 @@ def test_cli_dry_run_db_unchanged(tmp_path, capsys) -> None:
         after = list(conn.execute("SELECT * FROM profiles ORDER BY name"))
 
     assert before == after
+
+
+# ── CLI migration tests (gated live-migration) ────────────────────────────────
+
+
+def test_cli_migration_missing_env(tmp_path, capsys, monkeypatch) -> None:
+    """--confirm-cleartext-removal given but env not set → exit 2,
+    DB unchanged."""
+    monkeypatch.delenv("OPENADMINDESK_VAULT_PASSWORD", raising=False)
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="Test", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret", "Test"),
+        )
+        conn.commit()
+
+    exit_code = main([
+        "--db", store.db_path,
+        "--confirm-cleartext-removal",
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "environment variable" in captured.err.lower()
+
+    # DB unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Test",)
+        ).fetchone()
+        assert row[0] == "secret"
+
+    # No backup artifacts
+    assert not (tmp_path / "backups").exists()
+
+
+def test_cli_migration_wrong_password(tmp_path, capsys, monkeypatch) -> None:
+    """Wrong vault password → exit 1, no backup or DB mutation."""
+    vault_path = str(tmp_path / "vault.json")
+    vault = VaultManager(vault_path)
+    assert vault.setup_master_password("correct-password")
+    vault.lock()
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="Test", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret", "Test"),
+        )
+        conn.commit()
+
+    monkeypatch.setenv("OPENADMINDESK_VAULT_PASSWORD", "wrong-password")
+
+    exit_code = main([
+        "--db", store.db_path,
+        "--vault", vault_path,
+        "--confirm-cleartext-removal",
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "vault unlock failed" in captured.err.lower()
+
+    # No backup artifacts created
+    assert not (tmp_path / "backups").exists()
+
+    # DB secrets unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Test",)
+        ).fetchone()
+        assert row[0] == "secret"
+
+
+def test_cli_migration_text_success(tmp_path, capsys, monkeypatch) -> None:
+    """Successful text migration with env password+backup-dir → exit 0,
+    no secret values in output, credential IDs set, DB secrets NULL, backups
+    exist."""
+    vault_path = str(tmp_path / "vault.json")
+    vault = VaultManager(vault_path)
+    assert vault.setup_master_password("correct-password")
+    assert vault.unlock("correct-password")
+    vault.lock()
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="PrimaryBox",
+        host="host.example.com",
+        username="admin",
+        rdp_gateway="gw.example.com",
+        rdp_gateway_username="gw-user",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ?, private_key_passphrase = ?, "
+            "rdp_gateway_password = ? WHERE name = ?",
+            ("primary-pass", "key-pass", "gateway-pass", "PrimaryBox"),
+        )
+        conn.commit()
+
+    backup_dir = str(tmp_path / "my_backups")
+    monkeypatch.setenv("OPENADMINDESK_VAULT_PASSWORD", "correct-password")
+
+    exit_code = main([
+        "--db", store.db_path,
+        "--vault", vault_path,
+        "--confirm-cleartext-removal",
+        "--backup-dir", backup_dir,
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0, f"exit_code={exit_code}, stderr={captured.err}"
+
+    # No secret values in output
+    assert "primary-pass" not in captured.out
+    assert "key-pass" not in captured.out
+    assert "gateway-pass" not in captured.out
+
+    # Print includes counts
+    assert "Primary secrets migrated: 1" in captured.out
+    assert "Gateway secrets migrated: 1" in captured.out
+    assert "Backup database:" in captured.out
+    assert "Backup vault:" in captured.out
+
+    # Credential IDs set in DB
+    with sqlite3.connect(store.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM profiles WHERE name = ?", ("PrimaryBox",)
+        ).fetchone()
+        assert row["credential_id"] is not None
+        assert row["rdp_gateway_credential_id"] is not None
+        # DB secrets NULLed
+        assert row["password"] is None
+        assert row["private_key_passphrase"] is None
+        assert row["rdp_gateway_password"] is None
+
+    # Backups exist in specified directory
+    assert Path(backup_dir).exists()
+    assert len(list(Path(backup_dir).iterdir())) >= 2
+
+
+def test_cli_migration_json_success(tmp_path, capsys, monkeypatch) -> None:
+    """Successful JSON migration output parses counts, backup paths, and
+    hashes; no secret values."""
+    vault_path = str(tmp_path / "vault.json")
+    vault = VaultManager(vault_path)
+    assert vault.setup_master_password("master-pass")
+    assert vault.unlock("master-pass")
+    vault.lock()
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="JsonBox",
+        host="json.example.com",
+        username="admin",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("json-secret", "JsonBox"),
+        )
+        conn.commit()
+
+    monkeypatch.setenv("OPENADMINDESK_VAULT_PASSWORD", "master-pass")
+
+    exit_code = main([
+        "--db", store.db_path,
+        "--vault", vault_path,
+        "--confirm-cleartext-removal",
+        "--format", "json",
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    data = json.loads(captured.out)
+
+    assert data["scanned"] == 1
+    assert data["primary_migrated"] == 1
+    assert data["gateway_migrated"] == 0
+    assert data["backup"] is not None
+    assert "db_backup_path" in data["backup"]
+    assert "vault_backup_path" in data["backup"]
+    assert "db_sha256" in data["backup"]
+    assert "vault_sha256" in data["backup"]
+
+    # Backup files exist on disk
+    assert os.path.isfile(data["backup"]["db_backup_path"])
+    assert os.path.isfile(data["backup"]["vault_backup_path"])
+
+    # No secret values in output
+    assert "json-secret" not in captured.out
+
+
+def test_cli_migration_conflict(tmp_path, capsys, monkeypatch) -> None:
+    """Conflict between existing vault account and profile plaintext → exit 1,
+    DB/vault unchanged, backups remain, no secret in stderr."""
+    vault_path = str(tmp_path / "vault.json")
+    vault = VaultManager(vault_path)
+    assert vault.setup_master_password("master-pass")
+    assert vault.unlock("master-pass")
+
+    # Pre-seed vault account with DIFFERENT password than profile
+    acct = Account(
+        name="Conflict", username="admin", host="conflict.example.com",
+        password="different-vault-pass", service_type="ssh",
+    )
+    assert vault.add_account(acct)
+    vault.lock()
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="Conflict",
+        host="conflict.example.com",
+        username="admin",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ?, credential_id = ? WHERE name = ?",
+            ("profile-pass", acct.id, "Conflict"),
+        )
+        conn.commit()
+
+    monkeypatch.setenv("OPENADMINDESK_VAULT_PASSWORD", "master-pass")
+
+    exit_code = main([
+        "--db", store.db_path,
+        "--vault", vault_path,
+        "--confirm-cleartext-removal",
+    ])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "different secret values" in captured.err
+
+    # No secret values in stderr
+    assert "profile-pass" not in captured.err
+    assert "different-vault-pass" not in captured.err
+
+    # DB unchanged (secrets still in DB)
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Conflict",)
+        ).fetchone()
+        assert row[0] == "profile-pass"
+
+    # Vault unchanged
+    vault2 = VaultManager(vault_path)
+    assert vault2.unlock("master-pass")
+    accounts = vault2.get_all_accounts()
+    assert len(accounts) == 1
+    assert accounts[0].password == "different-vault-pass"
+
+    # Backups remain on disk (created before conflict detection)
+    assert (tmp_path / "backups").exists()
+    assert len(list((tmp_path / "backups").iterdir())) >= 2
 
 
 # ── Phase 9.6b: Secure SQLite+vault backup primitives ────────────────────────
