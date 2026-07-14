@@ -36,12 +36,32 @@ def _vault(tmp_path) -> VaultManager:
 
 
 def test_profile_secret_migration_fail_closed(tmp_path) -> None:
+    """Migration raises RuntimeError when confirm_cleartext_removal is False."""
     store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="Test", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret", "Test"),
+        )
+        conn.commit()
+
     vault = _vault(tmp_path)
 
-    # Live migration is disabled pending safe compensated migration
-    with pytest.raises(RuntimeError, match="live migration is disabled"):
-        migrate_plaintext_profile_secrets(store.db_path, vault, confirm_cleartext_removal=True)
+    # No confirmation → fail-closed before any backup or mutation
+    with pytest.raises(RuntimeError, match="Migration requires confirm_cleartext_removal=True"):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=False,
+        )
+
+    # No backup artifacts created
+    assert not (tmp_path / "backups").exists()
+    # DB unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Test",)
+        ).fetchone()
+        assert row[0] == "secret"
 
 
 def test_scan_plaintext_profile_secrets_no_secrets(tmp_path) -> None:
@@ -273,33 +293,55 @@ def test_core_scan_no_password_required(tmp_path) -> None:
 
 
 def test_core_migration_fails_closed(tmp_path) -> None:
+    """Migration raises RuntimeError when vault is locked."""
     store = ProfileStore(str(tmp_path / "profiles.db"))
     store.save_profile(Profile(name="Test", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret", "Test"),
+        )
+        conn.commit()
 
     vault = _vault(tmp_path)
+    vault.lock()
 
-    # Test that non-dry-run fails closed even with unlocked vault
-    with pytest.raises(RuntimeError, match="live migration is disabled"):
+    # Vault locked → fail-closed before any backup or mutation
+    with pytest.raises(RuntimeError, match="Vault must be unlocked for migration"):
         migrate_plaintext_profile_secrets(
             store.db_path,
             vault,
             confirm_cleartext_removal=True,
         )
 
+    # No backup artifacts created
+    assert not (tmp_path / "backups").exists()
+    # DB unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Test",)
+        ).fetchone()
+        assert row[0] == "secret"
 
-def test_core_migration_no_password_fails(tmp_path) -> None:
+
+def test_core_migration_no_legacy_rows(tmp_path) -> None:
+    """Migration with no legacy plaintext rows returns zero result, backup=None."""
     store = ProfileStore(str(tmp_path / "profiles.db"))
-    store.save_profile(Profile(name="Test", host="example.com"))
+    store.save_profile(Profile(name="Clean", host="example.com"))
 
     vault = _vault(tmp_path)
+    result = migrate_plaintext_profile_secrets(
+        store.db_path, vault, confirm_cleartext_removal=True,
+    )
 
-    # Test that migration fails closed before requiring confirmation
-    with pytest.raises(RuntimeError, match="live migration is disabled"):
-        migrate_plaintext_profile_secrets(
-            store.db_path,
-            vault,
-            confirm_cleartext_removal=False,
-        )
+    assert result.scanned == 0
+    assert result.primary_migrated == 0
+    assert result.gateway_migrated == 0
+    assert result.primary_cleared == 0
+    assert result.gateway_cleared == 0
+    assert result.backup is None
+    assert result.migrated == 0
+    assert result.cleared_only == 0
 
 
 # ── Real CLI tests (call main() directly with capsys) ──────────────────────
@@ -820,3 +862,634 @@ class TestProfileSecretBackups:
         assert isinstance(result, ProfileSecretBackupResult)
         with pytest.raises(AttributeError):
             result.db_backup_path = "/different/path"  # type: ignore[misc]
+
+
+# ── Phase 9.6c: Compensated primary+gateway migration integration tests ────
+
+# Test 1: confirmation false / vault locked → no backup, no mutation
+
+
+def test_migration_preconditions_fail_closed(tmp_path: Path) -> None:
+    """Confirm_cleartext_removal=False and locked vault both raise before any
+    side effects; no backup artifacts or DB mutations."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="Target", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret", "Target"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    # -- confirm_cleartext_removal=False --
+    with pytest.raises(RuntimeError, match="Migration requires confirm_cleartext_removal=True"):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=False,
+        )
+    # No backup artifacts
+    assert not (tmp_path / "backups").exists()
+    # DB unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Target",)
+        ).fetchone()
+        assert row[0] == "secret"
+
+    # -- vault locked --
+    vault.lock()
+    with pytest.raises(RuntimeError, match="Vault must be unlocked for migration"):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=True,
+        )
+    assert not (tmp_path / "backups").exists()
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Target",)
+        ).fetchone()
+        assert row[0] == "secret"
+
+
+# Test 2: no legacy rows → zero result, backup None
+
+
+def test_migration_no_legacy_rows(tmp_path: Path) -> None:
+    """No plaintext secrets in DB → result.scanned=0, backup=None."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="Clean", host="example.com"))
+    vault = _vault(tmp_path)
+    result = migrate_plaintext_profile_secrets(
+        store.db_path, vault, confirm_cleartext_removal=True,
+    )
+    assert result.scanned == 0
+    assert result.backup is None
+    assert result.migrated == 0
+    assert result.cleared_only == 0
+
+
+# Test 3: primary-only → vault account, credential_id set, DB secrets cleared
+
+
+def test_migration_primary_only(tmp_path: Path) -> None:
+    """Primary-only profile: vault account created, DB secrets NULLed,
+    backup present, counts correct."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="PrimaryOnly", host="host.example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ?, private_key_passphrase = ? WHERE name = ?",
+            ("legacy-pass", "key-pass", "PrimaryOnly"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+    result = migrate_plaintext_profile_secrets(
+        store.db_path, vault, confirm_cleartext_removal=True,
+    )
+
+    assert result.scanned == 1
+    assert result.primary_migrated == 1
+    assert result.gateway_migrated == 0
+    assert result.primary_cleared == 0
+    assert result.gateway_cleared == 0
+    assert result.backup is not None
+
+    # Vault account created with correct properties
+    accounts = vault.get_all_accounts()
+    assert len(accounts) == 1
+    acct = accounts[0]
+    assert acct.name == "PrimaryOnly"
+    assert acct.username == "admin"
+    assert acct.host == "host.example.com"
+    assert acct.service_type == "ssh"
+    assert acct.password == "legacy-pass"
+    assert acct.private_key_passphrase == "key-pass"
+
+    # DB secrets cleared, credential_id set
+    with sqlite3.connect(store.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM profiles WHERE name = ?", ("PrimaryOnly",)
+        ).fetchone()
+        assert row["credential_id"] == acct.id
+        assert row["password"] is None
+        assert row["private_key_passphrase"] is None
+
+    # Backup dir exists with files
+    backups_dir = tmp_path / "backups"
+    assert backups_dir.exists()
+    backup_files = list(backups_dir.iterdir())
+    assert len(backup_files) >= 2
+
+
+# Test 4: gateway-only → separate rdp-gateway vault account
+
+
+def test_migration_gateway_only(tmp_path: Path) -> None:
+    """Gateway-only profile: rdp-gateway vault account created, gateway
+    password cleared in DB."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="GatewayOnly",
+        host="host.example.com",
+        username="admin",
+        rdp_gateway="gw.example.com",
+        rdp_gateway_username="gw-user",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET rdp_gateway_password = ? WHERE name = ?",
+            ("gateway-pass", "GatewayOnly"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+    result = migrate_plaintext_profile_secrets(
+        store.db_path, vault, confirm_cleartext_removal=True,
+    )
+
+    assert result.scanned == 1
+    assert result.primary_migrated == 0
+    assert result.gateway_migrated == 1
+    assert result.primary_cleared == 0
+    assert result.gateway_cleared == 0
+    assert result.backup is not None
+
+    accounts = vault.get_all_accounts()
+    assert len(accounts) == 1
+    acct = accounts[0]
+    assert acct.name == "GatewayOnly-gateway"
+    assert acct.username == "gw-user"
+    assert acct.host == "gw.example.com"
+    assert acct.service_type == "rdp-gateway"
+    assert acct.password == "gateway-pass"
+
+    with sqlite3.connect(store.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM profiles WHERE name = ?", ("GatewayOnly",)
+        ).fetchone()
+        assert row["rdp_gateway_credential_id"] == acct.id
+        assert row["rdp_gateway_password"] is None
+
+
+# Test 5: mixed → both accounts, both credential IDs, all secrets NULLed
+
+
+def test_migration_mixed(tmp_path: Path) -> None:
+    """Mixed primary+gateway profile: both vault accounts created, both
+    credential IDs set, all three secret columns NULLed."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="Mixed",
+        host="mixed.example.com",
+        username="admin",
+        rdp_gateway="gw.example.com",
+        rdp_gateway_username="gw-user",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ?, private_key_passphrase = ?, "
+            "rdp_gateway_password = ? WHERE name = ?",
+            ("primary-pass", "key-pass", "gateway-pass", "Mixed"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+    result = migrate_plaintext_profile_secrets(
+        store.db_path, vault, confirm_cleartext_removal=True,
+    )
+
+    assert result.scanned == 1
+    assert result.primary_migrated == 1
+    assert result.gateway_migrated == 1
+    assert result.primary_cleared == 0
+    assert result.gateway_cleared == 0
+    assert result.backup is not None
+
+    accounts = vault.get_all_accounts()
+    assert len(accounts) == 2
+    primary = next(a for a in accounts if a.service_type == "ssh")
+    gateway = next(a for a in accounts if a.service_type == "rdp-gateway")
+
+    assert primary.password == "primary-pass"
+    assert primary.private_key_passphrase == "key-pass"
+    assert primary.name == "Mixed"
+    assert primary.host == "mixed.example.com"
+
+    assert gateway.password == "gateway-pass"
+    assert gateway.name == "Mixed-gateway"
+    assert gateway.host == "gw.example.com"
+
+    with sqlite3.connect(store.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM profiles WHERE name = ?", ("Mixed",)
+        ).fetchone()
+        assert row["credential_id"] == primary.id
+        assert row["rdp_gateway_credential_id"] == gateway.id
+        assert row["password"] is None
+        assert row["private_key_passphrase"] is None
+        assert row["rdp_gateway_password"] is None
+
+
+# Test 6: existing matching accounts → no vault rewrite, cleared counts only
+
+
+def test_migration_existing_matching_accounts(tmp_path: Path) -> None:
+    """Pre-existing matching vault accounts produce clear-only results; no
+    duplicate accounts or vault rewrites."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="Matched",
+        host="match.example.com",
+        username="admin",
+        rdp_gateway="gw.example.com",
+        rdp_gateway_username="gw-user",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ?, private_key_passphrase = ?, "
+            "rdp_gateway_password = ? WHERE name = ?",
+            ("pass", "key-pass", "gw-pass", "Matched"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    # Pre-create matching vault accounts
+    primary = Account(
+        name="Matched", username="admin", host="match.example.com",
+        password="pass", private_key_passphrase="key-pass",
+        service_type="ssh",
+    )
+    assert vault.add_account(primary)
+    gateway = Account(
+        name="Matched-gateway", username="gw-user", host="gw.example.com",
+        password="gw-pass", service_type="rdp-gateway",
+    )
+    assert vault.add_account(gateway)
+
+    # Set credential IDs in DB so resolver finds them
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET credential_id = ?, rdp_gateway_credential_id = ? WHERE name = ?",
+            (primary.id, gateway.id, "Matched"),
+        )
+        conn.commit()
+
+    accounts_before = vault.get_all_accounts()
+    assert len(accounts_before) == 2
+
+    result = migrate_plaintext_profile_secrets(
+        store.db_path, vault, confirm_cleartext_removal=True,
+    )
+
+    assert result.scanned == 1
+    assert result.primary_migrated == 0
+    assert result.gateway_migrated == 0
+    assert result.primary_cleared == 1
+    assert result.gateway_cleared == 1
+
+    # No new vault accounts added
+    accounts_after = vault.get_all_accounts()
+    assert len(accounts_after) == 2
+    # Original accounts unchanged
+    assert next(a for a in accounts_after if a.id == primary.id).password == "pass"
+
+    # DB secrets cleared
+    with sqlite3.connect(store.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM profiles WHERE name = ?", ("Matched",)
+        ).fetchone()
+        assert row["password"] is None
+        assert row["private_key_passphrase"] is None
+        assert row["rdp_gateway_password"] is None
+        # Credential IDs preserved
+        assert row["credential_id"] == primary.id
+        assert row["rdp_gateway_credential_id"] == gateway.id
+
+
+# Test 7: conflict → raises, DB/vault unchanged, backup remains
+
+
+def test_migration_conflict_raises(tmp_path: Path) -> None:
+    """Vault account with different secrets than profile raises RuntimeError;
+    DB and vault unchanged; backup files remain on disk."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="Conflict", host="example.com", username="admin",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("profile-pass", "Conflict"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    # Pre-create vault account with a DIFFERENT password
+    acct = Account(
+        name="Conflict", username="admin", host="example.com",
+        password="different-vault-pass", service_type="ssh",
+    )
+    assert vault.add_account(acct)
+
+    # Set credential_id to reference the conflict account
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET credential_id = ? WHERE name = ?",
+            (acct.id, "Conflict"),
+        )
+        conn.commit()
+
+    with pytest.raises(RuntimeError, match="different secret values"):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=True,
+        )
+
+    # DB unchanged (secrets still there)
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("Conflict",)
+        ).fetchone()
+        assert row[0] == "profile-pass"
+
+    # Vault unchanged (still has pre-existing account with different password)
+    accounts = vault.get_all_accounts()
+    assert len(accounts) == 1
+    assert accounts[0].password == "different-vault-pass"
+
+    # Backup files remain (created before conflict detection)
+    backups_dir = tmp_path / "backups"
+    assert backups_dir.exists()
+    assert len(list(backups_dir.iterdir())) >= 2
+
+
+# Test 8: gateway add fails → primary compensated, DB unchanged
+
+
+def test_migration_gateway_failure_compensates_primary(tmp_path: Path, monkeypatch) -> None:
+    """When gateway add_account returns False after primary success, the
+    primary vault account is removed (compensated) and DB remains unchanged."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(
+        name="FailBox",
+        host="example.com",
+        username="admin",
+        rdp_gateway="gw.example.com",
+        rdp_gateway_username="gw-user",
+    ))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ?, rdp_gateway_password = ? WHERE name = ?",
+            ("primary-pass", "gateway-pass", "FailBox"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    original_add = vault.add_account
+    call_count = [0]
+
+    def _failing_add(acct: object) -> bool:
+        call_count[0] += 1
+        if call_count[0] == 2:  # 2nd call = gateway add → fail
+            return False
+        return original_add(acct)
+
+    monkeypatch.setattr(vault, "add_account", _failing_add)
+
+    with pytest.raises(RuntimeError, match="Failed to add"):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=True,
+        )
+
+    # Primary account removed via compensation
+    assert vault.get_all_accounts() == []
+
+    # DB unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password, rdp_gateway_password FROM profiles WHERE name = ?",
+            ("FailBox",),
+        ).fetchone()
+        assert row[0] == "primary-pass"
+        assert row[1] == "gateway-pass"
+
+
+# Test 9: DB UPDATE failure via SQLite trigger → all accounts removed,
+#          DB unchanged, backups remain
+
+
+def test_migration_db_update_failure_compensates(tmp_path: Path) -> None:
+    """When the DB UPDATE fails (via SQLite trigger), all vault accounts
+    created during migration are removed, DB secrets remain intact, and
+    backup files survive."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="TriggerBox", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret", "TriggerBox"),
+        )
+        # Trigger that rejects any UPDATE on profiles
+        conn.execute("""
+            CREATE TRIGGER reject_update AFTER UPDATE ON profiles
+            BEGIN
+                SELECT RAISE(ABORT, 'Trigger rejected update');
+            END
+        """)
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    # When compensation succeeds, the raw IntegrityError is re-raised
+    with pytest.raises((RuntimeError, sqlite3.IntegrityError)):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=True,
+        )
+
+    # All vault accounts removed
+    assert vault.get_all_accounts() == []
+
+    # DB secrets unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("TriggerBox",)
+        ).fetchone()
+        assert row[0] == "secret"
+
+    # Backup files remain on disk
+    backups_dir = tmp_path / "backups"
+    assert backups_dir.exists()
+    assert len(list(backups_dir.iterdir())) >= 2
+
+
+# Test 10: multiple profiles, later failure → prior accounts compensated,
+#          all DB unchanged
+
+
+def test_migration_multiple_profiles_later_failure_compensates_all(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """When processing multiple profiles and one later add fails, all prior
+    vault accounts are compensated (removed) and all DB rows are unchanged."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    for i in range(3):
+        store.save_profile(Profile(
+            name=f"Profile{i}", host="example.com", username="admin",
+        ))
+    with sqlite3.connect(store.db_path) as conn:
+        for i in range(3):
+            conn.execute(
+                "UPDATE profiles SET password = ? WHERE name = ?",
+                (f"secret-{i}", f"Profile{i}"),
+            )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    original_add = vault.add_account
+    call_count = [0]
+
+    def _failing_add(acct: object) -> bool:
+        call_count[0] += 1
+        if call_count[0] == 3:  # 3rd add = third profile → fail
+            return False
+        return original_add(acct)
+
+    monkeypatch.setattr(vault, "add_account", _failing_add)
+
+    with pytest.raises(RuntimeError):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=True,
+        )
+
+    # All accounts compensated
+    assert vault.get_all_accounts() == []
+
+    # All DB secrets unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        for i in range(3):
+            row = conn.execute(
+                "SELECT password FROM profiles WHERE name = ?",
+                (f"Profile{i}",),
+            ).fetchone()
+            assert row[0] == f"secret-{i}", (
+                f"Profile{i} secret was modified"
+            )
+
+
+# Test 11: compensation remove_account returns False while account exists
+#          → RuntimeError mentions compensation + backup paths, no secret text
+
+
+def test_migration_compensation_failure_mentions_backup_paths(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """When vault.remove_account returns False and account still exists,
+    RuntimeError includes 'compensation' and 'Backup paths' but no raw
+    secret values."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="BadComp", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret-value", "BadComp"),
+        )
+        # Trigger to make DB update fail, forcing compensation
+        conn.execute("""
+            CREATE TRIGGER fail_update AFTER UPDATE ON profiles
+            BEGIN
+                SELECT RAISE(ABORT, 'Simulated DB failure');
+            END
+        """)
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    # Make remove_account always return False
+    monkeypatch.setattr(vault, "remove_account", lambda account_id: False)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=True,
+        )
+
+    msg = str(exc_info.value)
+    assert "compensation" in msg.lower() or "Compensation" in msg
+    assert "Backup paths" in msg
+    # No raw secret values in error
+    assert "secret-value" not in msg
+    assert "secret" not in msg.lower() or "different" in msg.lower()
+
+    # DB unchanged
+    with sqlite3.connect(store.db_path) as conn:
+        row = conn.execute(
+            "SELECT password FROM profiles WHERE name = ?", ("BadComp",)
+        ).fetchone()
+        assert row[0] == "secret-value"
+
+    # Backup files remain
+    assert (tmp_path / "backups").exists()
+
+
+# Test 12: vault locks mid-run → rollback, DB unchanged
+
+
+def test_migration_vault_locks_mid_run_rolls_back(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """Vault auto-lock during migration (is_unlocked returns False mid-run)
+    triggers a RuntimeError.  All vault accounts are compensated and DB
+    secrets remain intact."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="Alpha", host="example.com", username="admin"))
+    store.save_profile(Profile(name="Beta", host="example.com", username="admin"))
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret-a", "Alpha"),
+        )
+        conn.execute(
+            "UPDATE profiles SET password = ? WHERE name = ?",
+            ("secret-b", "Beta"),
+        )
+        conn.commit()
+
+    vault = _vault(tmp_path)
+
+    # Simulate vault lock after processing the first profile
+    call_count = [0]
+
+    def _locking_unlocked() -> bool:
+        call_count[0] += 1
+        # Call 1: pre-check (True).  Call 2: Alpha row (True).  Call 3: Beta row (False).
+        return call_count[0] < 3
+
+    monkeypatch.setattr(vault, "is_unlocked", _locking_unlocked)
+
+    with pytest.raises(RuntimeError, match="Vault became locked"):
+        migrate_plaintext_profile_secrets(
+            store.db_path, vault, confirm_cleartext_removal=True,
+        )
+
+    # DB unchanged — no credential IDs set, secrets intact
+    with sqlite3.connect(store.db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT name, password, credential_id FROM profiles ORDER BY name",
+        ).fetchall()
+        assert rows[0]["password"] == "secret-a"
+        assert rows[1]["password"] == "secret-b"
+        for row in rows:
+            assert row["credential_id"] is None, (
+                f"{row['name']} has credential_id set despite rollback"
+            )
+
+    # Vault accounts compensated
+    assert vault.get_all_accounts() == []

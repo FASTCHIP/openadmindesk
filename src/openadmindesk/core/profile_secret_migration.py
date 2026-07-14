@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
+from openadmindesk.core.account import Account
 from openadmindesk.core.vault_manager import VaultManager
 
 SECRET_COLUMNS = ("password", "private_key_passphrase", "rdp_gateway_password")
@@ -38,9 +39,38 @@ class ProfileSecretScanReport:
 
 @dataclass(frozen=True)
 class ProfileSecretMigrationResult:
+    """Result of a profile secret migration operation.
+
+    Attributes:
+        scanned: Number of profiles with legacy secrets that were processed.
+        primary_migrated: Count of primary secrets (password/passphrase) moved
+            into new vault accounts.
+        gateway_migrated: Count of gateway secrets (rdp_gateway_password) moved
+            into new vault accounts.
+        primary_cleared: Count of primary secrets cleared from the DB because
+            matching vault accounts already existed.
+        gateway_cleared: Count of gateway secrets cleared from the DB because
+            matching vault accounts already existed.
+        backup: Result of the pre-migration backup, or None if no rows needed
+            migration.
+    """
+
     scanned: int = 0
-    migrated: int = 0
-    cleared_only: int = 0
+    primary_migrated: int = 0
+    gateway_migrated: int = 0
+    primary_cleared: int = 0
+    gateway_cleared: int = 0
+    backup: Optional["ProfileSecretBackupResult"] = None
+
+    @property
+    def migrated(self) -> int:
+        """Total vault account operations (compatibility with legacy callers)."""
+        return self.primary_migrated + self.gateway_migrated
+
+    @property
+    def cleared_only(self) -> int:
+        """Total clearing operations (compatibility with legacy callers)."""
+        return self.primary_cleared + self.gateway_cleared
 
 
 def scan_plaintext_profile_secrets(db_path: str) -> ProfileSecretScanReport:
@@ -98,21 +128,322 @@ def scan_plaintext_profile_secrets(db_path: str) -> ProfileSecretScanReport:
     )
 
 
+# ── Private helpers for Phase 9.6c migration ────────────────────────────────
+
+
+def _query_legacy_rows(db_path: str) -> list[sqlite3.Row]:
+    """Return all profile rows that contain at least one non-empty plaintext
+    secret, ordered by name for deterministic processing."""
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute(
+            """
+            SELECT name, host, port, username,
+                   password, private_key_passphrase, rdp_gateway_password,
+                   credential_id, rdp_gateway_credential_id,
+                   rdp_gateway, rdp_gateway_username
+            FROM profiles
+            WHERE (password IS NOT NULL AND password != '')
+               OR (private_key_passphrase IS NOT NULL AND private_key_passphrase != '')
+               OR (rdp_gateway_password IS NOT NULL AND rdp_gateway_password != '')
+            ORDER BY name
+            """
+        ).fetchall()
+
+
+def _resolve_primary_account(
+    vault: VaultManager,
+    row: sqlite3.Row,
+    compensation_stack: list,
+) -> tuple[Optional[str], int, int]:
+    """Resolve primary vault account for a legacy profile row.
+
+    If a vault account already exists with a matching credential_id and
+    matching secret values, the existing account is retained (no upsert).
+    If values differ, a RuntimeError is raised before any vault write.
+    If no vault account exists, a new Account is created with the
+    profile's credential_id (or a generated one) and added to the vault.
+
+    Returns:
+        Tuple of (credential_id, migrate_increment, clear_increment).
+
+    Raises:
+        RuntimeError: On vault conflict (existing account has different values)
+            or vault write failure. Message contains no secret values.
+    """
+    name = row["name"]
+    password = row["password"]
+    passphrase = row["private_key_passphrase"]
+    credential_id = row["credential_id"]
+
+    has_password = bool(password)
+    has_passphrase = bool(passphrase)
+
+    if not has_password and not has_passphrase:
+        return credential_id, 0, 0
+
+    if credential_id:
+        existing = vault.get_account(credential_id)
+        if existing is not None:
+            secrets_match = True
+            if has_password and existing.password != password:
+                secrets_match = False
+            if has_passphrase and existing.private_key_passphrase != passphrase:
+                secrets_match = False
+            if not secrets_match:
+                raise RuntimeError(
+                    f"Vault account '{credential_id}' for profile '{name}' "
+                    "has different secret values than the profile. "
+                    "Resolve the conflict manually before migration."
+                )
+            # Existing account matches — no vault write needed
+            return credential_id, 0, 1
+
+    # Create a new vault account (use existing credential_id if set but missing)
+    new_id: Optional[str] = credential_id if credential_id else None
+    acct = Account(
+        id=new_id,
+        name=name,
+        username=row["username"] or "",
+        host=row["host"] or "",
+        port=row["port"] or 22,
+        service_type="ssh",
+        password=password if has_password else None,
+        private_key_passphrase=passphrase if has_passphrase else None,
+    )
+    if not vault.add_account(acct):
+        raise RuntimeError(
+            f"Failed to add primary vault account for profile '{name}'"
+        )
+    compensation_stack.append(acct.id)
+    return acct.id, 1, 0
+
+
+def _resolve_gateway_account(
+    vault: VaultManager,
+    row: sqlite3.Row,
+    compensation_stack: list,
+) -> tuple[Optional[str], int, int]:
+    """Resolve RDP gateway vault account for a legacy profile row.
+
+    If a vault account already exists with a matching
+    rdp_gateway_credential_id and matching password, the existing account
+    is retained (no upsert).  If values differ, a RuntimeError is raised
+    before any vault write.  If no vault account exists, a new Account
+    with ``service_type`` ``rdp-gateway`` is created.
+
+    Returns:
+        Tuple of (rdp_gateway_credential_id, migrate_increment,
+        clear_increment).
+
+    Raises:
+        RuntimeError: On vault conflict or vault write failure.
+    """
+    name = row["name"]
+    gateway_password = row["rdp_gateway_password"]
+    gateway_credential_id = row["rdp_gateway_credential_id"]
+    gateway_host = row["rdp_gateway"]
+    gateway_username = row["rdp_gateway_username"]
+
+    if not gateway_password:
+        return gateway_credential_id, 0, 0
+
+    if gateway_credential_id:
+        existing = vault.get_account(gateway_credential_id)
+        if existing is not None:
+            if existing.password != gateway_password:
+                raise RuntimeError(
+                    f"Vault gateway account '{gateway_credential_id}' for "
+                    f"profile '{name}' has a different password than the "
+                    "profile's gateway. Resolve the conflict manually "
+                    "before migration."
+                )
+            # Existing account matches — no vault write needed
+            return gateway_credential_id, 0, 1
+
+    # Create a new gateway vault account
+    new_id: Optional[str] = gateway_credential_id if gateway_credential_id else None
+    acct = Account(
+        id=new_id,
+        name=f"{name}-gateway",
+        username=gateway_username or "",
+        host=gateway_host or "",
+        service_type="rdp-gateway",
+        password=gateway_password,
+    )
+    if not vault.add_account(acct):
+        raise RuntimeError(
+            f"Failed to add gateway vault account for profile '{name}'"
+        )
+    compensation_stack.append(acct.id)
+    return acct.id, 1, 0
+
+
+# ── Phase 9.6c: Compensated primary+gateway migration ──────────────────────
+
+
 def migrate_plaintext_profile_secrets(
     db_path: str,
     vault: VaultManager,
     *,
     confirm_cleartext_removal: bool = False,
+    backup_dir: Optional[str] = None,
 ) -> ProfileSecretMigrationResult:
     """Move legacy profile secrets to vault accounts and clear profile columns.
 
-    This is intentionally explicit and never runs during normal application startup.
+    This is intentionally explicit and never runs during normal application
+    startup.
+
+    The migration is fully compensated:
+      1. Backs up the database and encrypted vault before any mutation.
+      2. For each affected row, checks vault conflicts and either creates
+         new vault accounts or retains matching existing ones.
+      3. Updates all affected rows in a single SQLite transaction, setting
+         credential IDs and clearing all three plaintext secret columns.
+      4. On any failure the DB transaction is rolled back and vault accounts
+         created during this call are removed.  If compensation fails, the
+         resulting RuntimeError includes backup paths but never secret values.
+
+    Args:
+        db_path: Path to the SQLite profile database.
+        vault: An unlocked VaultManager instance.
+        confirm_cleartext_removal: Must be ``True`` to proceed.
+        backup_dir: Target backup directory (passed to
+            :func:`create_profile_secret_backups`).
+
+    Returns:
+        ProfileSecretMigrationResult with counts of migrated / cleared
+        secrets and the backup result.
+
+    Raises:
+        RuntimeError: If preconditions are not met, a vault conflict exists,
+            vault or DB writes fail, or compensation fails after a failure.
     """
-    # Fail closed: live migration is disabled pending safe compensated migration
-    raise RuntimeError(
-        "live migration is disabled pending safe compensated migration; "
-        "use --dry-run for assessment"
+    if not confirm_cleartext_removal:
+        raise RuntimeError(
+            "Migration requires confirm_cleartext_removal=True"
+        )
+
+    if not vault.is_unlocked():
+        raise RuntimeError("Vault must be unlocked for migration")
+
+    # 1) Query affected rows
+    rows = _query_legacy_rows(db_path)
+    scanned = len(rows)
+
+    if scanned == 0:
+        return ProfileSecretMigrationResult(scanned=0, backup=None)
+
+    # 2) Back up before any mutation
+    backup = create_profile_secret_backups(
+        db_path, vault.vault_path, backup_dir
     )
+
+    # 3) Process each row — resolve vault accounts, build compensation stack
+    compensation_stack: list[str] = []
+    db_updates: list[dict[str, object]] = []
+    primary_migrated = 0
+    gateway_migrated = 0
+    primary_cleared = 0
+    gateway_cleared = 0
+
+    try:
+        for row in rows:
+            # Refresh activity time and detect auto-lock before each row
+            if not vault.is_unlocked():
+                raise RuntimeError(
+                    "Vault became locked during migration; "
+                    "re-unlock and retry"
+                )
+
+            cred_id, prim_mig, prim_clr = _resolve_primary_account(
+                vault, row, compensation_stack,
+            )
+            primary_migrated += prim_mig
+            primary_cleared += prim_clr
+
+            gw_cred_id, gw_mig, gw_clr = _resolve_gateway_account(
+                vault, row, compensation_stack,
+            )
+            gateway_migrated += gw_mig
+            gateway_cleared += gw_clr
+
+            if prim_mig == 0 and gw_mig == 0 and prim_clr == 0 and gw_clr == 0:
+                continue  # no changes for this row
+
+            db_updates.append({
+                "name": row["name"],
+                "credential_id": cred_id,
+                "rdp_gateway_credential_id": gw_cred_id,
+            })
+
+        # 4) Single DB transaction — update all rows atomically
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                for update in db_updates:
+                    conn.execute(
+                        """UPDATE profiles
+                           SET credential_id = ?,
+                               rdp_gateway_credential_id = ?,
+                               password = NULL,
+                               private_key_passphrase = NULL,
+                               rdp_gateway_password = NULL
+                           WHERE name = ?""",
+                        (
+                            update["credential_id"],
+                            update["rdp_gateway_credential_id"],
+                            update["name"],
+                        ),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        return ProfileSecretMigrationResult(
+            scanned=scanned,
+            primary_migrated=primary_migrated,
+            gateway_migrated=gateway_migrated,
+            primary_cleared=primary_cleared,
+            gateway_cleared=gateway_cleared,
+            backup=backup,
+        )
+
+    except Exception as exc:
+        # 5) Compensation: remove vault accounts created during this call
+        compensation_errors: list[str] = []
+        for acct_id in compensation_stack:
+            try:
+                removed = vault.remove_account(acct_id)
+                if not removed:
+                    # remove_account returned False — diagnose why
+                    if not vault.is_unlocked():
+                        compensation_errors.append(
+                            f"Vault locked while compensating account '{acct_id}'"
+                        )
+                    else:
+                        still_exists = vault.get_account(acct_id)
+                        if still_exists is not None:
+                            compensation_errors.append(
+                                f"Failed to remove account '{acct_id}'"
+                            )
+                        # else: already absent — acceptable
+            except Exception as ce:
+                compensation_errors.append(
+                    f"Error compensating account '{acct_id}': {ce}"
+                )
+
+        if compensation_errors:
+            raise RuntimeError(
+                f"Migration failed and vault compensation had errors. "
+                f"Backup paths: DB={backup.db_backup_path}, "
+                f"Vault={backup.vault_backup_path}. "
+                f"Compensation errors: {'; '.join(compensation_errors)}"
+            ) from exc
+
+        # Re-raise original exception (compensation succeeded)
+        raise
 
 
 # ── Phase 9.6b: Secure SQLite+vault backup primitives ────────────────────────

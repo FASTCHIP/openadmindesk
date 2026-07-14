@@ -1869,3 +1869,33 @@ git status --short  # only 4 expected files modified
  M src/openadmindesk/core/profile_secret_migration.py
  M tests/test_profile_secret_migration.py
 ```
+
+---
+
+## 2026-07-14 (Phase9.6c finalize: reviewer PASS, full verification)
+
+Reviewer PASS — all changes accepted.
+
+### Core
+
+- `src/openadmindesk/core/profile_secret_migration.py`: Pre-existing Phase 9.6c implementation (not touched by this task).
+- `tests/test_profile_secret_migration.py`: Updated 3 stale fail-closed tests; added 12 integration tests covering: precondition failure, no-legacy-rows, primary-only, gateway-only, mixed, existing matching accounts, conflict, gateway-add failure compensation, DB-trigger failure compensation, multi-profile compensation, compensation-failure error message, vault-lock-mid-run rollback.
+
+### Verification (pre-stage)
+
+```bash
+ruff check --no-cache src tools tests   # exit 0, all checks passed
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider  # exit 0, 376 passed
+poetry run bandit -r src/ -lll          # exit 0, no issues
+poetry run pip-audit                    # exit 0, no known vulnerabilities
+git diff --check                        # clean
+```
+
+### Staged Files
+
+```
+ M docs/AUDIT_REMEDIATION_PLAN.md
+ M docs/WORKLOG.md
+ M src/openadmindesk/core/profile_secret_migration.py
+ M tests/test_profile_secret_migration.py
+```
