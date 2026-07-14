@@ -1555,9 +1555,40 @@ Added file-local pytest autouse fixture to test_session_wizard.py to make it hea
 - Mock function returns QMessageBox.StandardButton.Ok without blocking
 - Fixture is file-local and does not modify conftest.py or global behavior
 
+### Phase 9.5c Implementation: SessionWizard Compensation Logic
+
+This entry implements Phase 9.5c from the audit remediation plan:
+
+1. **Production Changes (session_wizard.py):**
+   - Added `import copy` for deepcopy functionality
+   - Enhanced `SessionWizard.accept()` method with compensation logic:
+     - Store previous account state before vault operations
+     - On store.save_profile failure: remove newly created account or restore previous account state
+     - On store.save_profile exception: same compensation behavior
+     - Preserve existing account fields (private_key, private_key_passphrase) during upsert
+     - Use deepcopy to capture account state before modification
+   - Extracted duplicated compensation logic into `_compensate_vault_operation()` helper method
+
+2. **Test Changes (test_session_wizard.py):**
+   - Added focused tests for validation and compensation scenarios:
+     - `test_session_wizard_validation_failure_with_new_password`: validates that invalid profiles don't create accounts
+     - `test_session_wizard_new_account_then_store_false`: tests rollback for new account creation
+     - `test_session_wizard_existing_account_update_then_store_false`: tests restoration of existing account
+     - `test_session_wizard_store_raises_exception`: tests exception handling and compensation
+     - `test_session_wizard_rollback_remove_false_shows_recovery_message`: tests compensation failure handling
+     - `test_session_wizard_temp_unlocked_still_no_vault_store`: verifies temporary mode behavior
+
+3. **Behavior Verification:**
+   - Temporary connect mode remains memory-only (no vault/store operations)
+   - Saved modes require unlocked vault for password entry
+   - Successful vault add updates profile with credential_id and clears password
+   - Store failure triggers compensation: removes new account or restores previous state
+   - Exception handling includes proper compensation
+   - All existing SessionWizard functionality preserved
+
 ### Full Test Suite Results
 
-- Full headless pytest: 326 passed in 9.91s
+- Full headless pytest: 332 passed in 11.09s (pre-change: 326 passed)
 - Bandit security scan: PASS (No issues identified, 1 suppression respected)
 - pip-audit vulnerability scan: PASS (No known vulnerabilities found)
 - Git diff check: PASS

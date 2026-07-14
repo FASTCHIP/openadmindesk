@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from typing import Optional
+import copy
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -192,7 +193,7 @@ class SessionWizard(QWizard):
         if not profile:
             # Invalid profile, do not close
             return
-            
+
         # Handle credential save modes
         launch_behavior = self.launch_behavior()
         if launch_behavior == _LAUNCH_TEMP_CONNECT:
@@ -200,11 +201,11 @@ class SessionWizard(QWizard):
             self._saved_profile = profile
             super().accept()
             return
-            
+
         # For save modes, check vault state and handle accordingly
         credential_id = profile.credential_id
         password = profile.password
-        
+
         # If password entered but vault is absent or locked, show error
         if password and (not self.vault or not self.vault.is_unlocked()):
             QMessageBox.critical(
@@ -213,7 +214,10 @@ class SessionWizard(QWizard):
                 _("A vault is required to save passwords. Please unlock the vault first.")
             )
             return
-            
+
+        # Initialize previous_account for compensation tracking
+        previous_account = None
+
         # If vault is unlocked and password is entered, save to vault
         if password and self.vault and self.vault.is_unlocked():
             # Create account with entered password
@@ -226,6 +230,7 @@ class SessionWizard(QWizard):
                 service_type=profile.session_type.value,
             )
             # If credential_id exists, get existing account and preserve its private_key/private_key_passphrase and other fields
+            existing_account = None
             if credential_id:
                 existing_account = self.vault.get_account(credential_id)
                 if existing_account:
@@ -259,10 +264,24 @@ class SessionWizard(QWizard):
                     _("Failed to save account to vault.")
                 )
                 return
-                
+
+        # Store previous account state for compensation (only if we entered the vault block)
+        if password and self.vault and self.vault.is_unlocked():
+            previous_account = copy.deepcopy(existing_account) if existing_account else None
+
         # If store.save_profile fails, return without saving
         try:
             if not self.store.save_profile(profile):
+                # Compensation: remove account from vault if it was added
+                if password and self.vault and self.vault.is_unlocked():
+                    if not self._compensate_vault_operation(account, previous_account):
+                        # If compensation fails, show recovery message
+                        QMessageBox.critical(
+                            self,
+                            _("Vault Recovery Required"),
+                            _("Failed to compensate vault operation. No secrets were leaked, but manual vault recovery may be required.")
+                        )
+
                 QMessageBox.critical(
                     self,
                     _("Save Error"),
@@ -270,16 +289,49 @@ class SessionWizard(QWizard):
                 )
                 return
         except Exception:
+            # Compensation: remove account from vault if it was added
+            if password and self.vault and self.vault.is_unlocked():
+                if not self._compensate_vault_operation(account, previous_account):
+                    # If compensation fails, show recovery message
+                    QMessageBox.critical(
+                        self,
+                        _("Vault Recovery Required"),
+                        _("Failed to compensate vault operation. No secrets were leaked, but manual vault recovery may be required.")
+                    )
+
             QMessageBox.critical(
                 self,
                 _("Save Error"),
                 _("Failed to save profile.")
             )
             return
-            
+
         # Success - set _saved_profile and close
         self._saved_profile = profile
         super().accept()
+
+    def _compensate_vault_operation(self, account: Account, previous_account: Optional[Account]) -> bool:
+        """Compensate vault operations on store failure.
+
+        Args:
+            account: The account that was added to vault
+            previous_account: The previous account state to restore, if any
+
+        Returns:
+            bool: True if compensation succeeded, False otherwise
+        """
+        try:
+            if previous_account:
+                # Restore previous account state
+                if not self.vault.add_account(previous_account):
+                    return False
+            else:
+                # Remove the newly created account
+                if not self.vault.remove_account(account.id):
+                    return False
+            return True
+        except Exception:
+            return False
 
     def created_profile(self) -> Optional[Profile]:
         return getattr(self, "_saved_profile", None)
@@ -310,7 +362,7 @@ class SessionWizard(QWizard):
         password = self.field("password") or None
         private_key_path = self.field("private_key") or None
         credential_id = self.credential_page.selected_credential_id()
-        
+
         # Return password in memory unless existing credential ID is selected with empty password
         # This makes _build_profile side-effect free
         # If credential_id exists and password is empty, password should be None (preserve existing)
@@ -319,9 +371,9 @@ class SessionWizard(QWizard):
         # If no credential_id and no password, password should be None
         if credential_id and not password:
             password = None
-        # All other cases (new credential with password, existing credential with new password) 
+        # All other cases (new credential with password, existing credential with new password)
         # keep password as-is (in memory)
-            
+
         # Common fields
         kwargs: dict = dict(
             name=name,
