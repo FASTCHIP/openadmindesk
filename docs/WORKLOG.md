@@ -1592,3 +1592,239 @@ This entry implements Phase 9.5c from the audit remediation plan:
 - Bandit security scan: PASS (No issues identified, 1 suppression respected)
 - pip-audit vulnerability scan: PASS (No known vulnerabilities found)
 - Git diff check: PASS
+
+---
+
+## 2026-07-14 (Phase9.6a: Profile Secret Migration Dry-run)
+
+### Implementation Summary
+
+Implemented Phase9.6a for legacy plaintext profile secret migration with dry-run support:
+
+**Core Changes:**
+
+1. **New Dataclasses** (`src/openadmindesk/core/profile_secret_migration.py`):
+   - `ProfileSecretScan`: Immutable metadata only (name, has_password, has_passphrase, has_gateway_password, has_credential_id, has_gateway_credential_id)
+   - `ProfileSecretScanReport`: Immutable report with totals and profile tuples
+
+2. **New Scan Function**:
+   - `scan_plaintext_profile_secrets(db_path)`: Read-only SELECT, deterministic name order, never writes/opens vault
+   - Returns metadata-only report with no secret values
+
+3. **Fail-Closed Migration**:
+   - `migrate_plaintext_profile_secrets()` now fails closed with RuntimeError before any write
+   - Clear message directs users to use `--dry-run` for assessment
+
+**CLI Changes** (`tools/migrate_profile_secrets.py`):
+
+1. **New Options**:
+   - `--dry-run`: Invokes scan only, no vault unlock, no mutation, exits 0
+   - `--format {text,json}`: Output format control
+
+2. **Dry-run Behavior**:
+   - No password/vault unlock required
+   - Prints summary + profile names/boolean categories
+   - Never exposes secret values
+   - Exits 0 on success
+
+3. **Non-dry-run Behavior**:
+   - Requires password environment variable
+   - Fails closed with clear message before any mutation
+   - Exits nonzero when live migration is disabled
+
+**Test Coverage** (`tests/test_profile_secret_migration.py`):
+
+1. **Scan Tests**:
+   - No secrets scenario
+   - Primary-only credentials
+   - Gateway-only credentials
+   - Mixed (primary + gateway) credentials
+   - Existing credential IDs detection
+   - Deterministic ordering
+   - Database unchanged after scan
+
+2. **CLI Tests**:
+   - Dry-run text format output
+   - Dry-run JSON format output
+   - No password required for dry-run
+   - Non-dry-run fails closed
+   - Non-dry-run requires confirmation
+
+3. **Updated Tests**:
+   - Old live migration test now expects fail-closed behavior
+   - Verifies database/vault unchanged after failed migration
+
+### Files Changed
+
+1. `src/openadmindesk/core/profile_secret_migration.py`:
+   - Added ProfileSecretScan dataclass
+   - Added ProfileSecretScanReport dataclass
+   - Added scan_plaintext_profile_secrets() function
+   - Updated migrate_plaintext_profile_secrets() to fail closed
+
+2. `tools/migrate_profile_secrets.py`:
+   - Added json import
+   - Added sys import
+   - Added scan_plaintext_profile_secrets import
+   - Added --dry-run and --format arguments
+   - Added _print_text_report() helper
+   - Added _print_json_report() helper
+   - Updated main() to support dry-run workflow
+
+3. `tests/test_profile_secret_migration.py`:
+   - Added scan_plaintext_profile_secrets import
+   - Replaced test_profile_secret_migration_requires_confirmation with test_profile_secret_migration_fail_closed
+   - Added test_scan_plaintext_profile_secrets_no_secrets
+   - Added test_scan_plaintext_profile_secrets_primary_only
+   - Added test_scan_plaintext_profile_secrets_gateway_only
+   - Added test_scan_plaintext_profile_secrets_mixed
+   - Added test_scan_plaintext_profile_secrets_with_credential_ids
+   - Added test_scan_plaintext_profile_secrets_deterministic_order
+   - Added test_scan_plaintext_profile_secrets_db_unchanged
+   - Added test_cli_dry_run_text_format
+   - Added test_cli_dry_run_json_format
+   - Added test_cli_dry_run_no_password_required
+   - Added test_cli_non_dry_run_fails_closed
+   - Added test_cli_non_dry_run_no_password_fails
+   - Removed unused os import
+   - Fixed boolean comparison style (== True → direct usage)
+
+### Verification Results
+
+```bash
+python3 -m py_compile src/openadmindesk/core/profile_secret_migration.py  # PASS
+python3 -m py_compile tools/migrate_profile_secrets.py  # PASS
+ruff check src/openadmindesk/core/profile_secret_migration.py  # PASS
+ruff check tools/migrate_profile_secrets.py  # PASS
+ruff check tests/test_profile_secret_migration.py  # PASS
+python3 -m pytest tests/test_profile_secret_migration.py -v  # 13/13 passed
+PYTHONPATH=/ai/openadmindesk/src python3 tools/migrate_profile_secrets.py --help  # PASS
+PYTHONPATH=/ai/openadmindesk/src python3 tools/migrate_profile_secrets.py --db /tmp/test.db --dry-run  # PASS
+PYTHONPATH=/ai/openadmindesk/src python3 tools/migrate_profile_secrets.py --db /tmp/test.db --dry-run --format json  # PASS
+OPENADMINDESK_VAULT_PASSWORD=test-pass PYTHONPATH=/ai/openadmindesk/src python3 tools/migrate_profile_secrets.py --db /tmp/test.db --vault /tmp/vault.json --confirm-cleartext-removal  # FAIL (expected: live migration disabled)
+```
+
+### Acceptance Criteria Status
+
+✅ Core: Immutable ProfileSecretScan metadata only
+✅ Core: Immutable ProfileSecretScanReport with totals and profiles tuple
+✅ Core: scan_plaintext_profile_secrets() read-only, deterministic, no vault access
+✅ Core: migrate_plaintext_profile_secrets() fails closed before any write
+✅ CLI: --dry-run option implemented
+✅ CLI: --format {text,json} option implemented
+✅ CLI: Dry-run requires no password/vault unlock
+✅ CLI: Dry-run prints no secret values, exits 0
+✅ CLI: Non-dry-run exits nonzero with clear message
+✅ CLI: JSON uses dataclasses safely
+✅ Tests: No secrets in test data
+✅ Tests: Primary-only, gateway-only, mixed scenarios
+✅ Tests: Existing credential IDs detection
+✅ Tests: Deterministic ordering verified
+✅ Tests: Database unchanged after scan
+✅ Tests: CLI dry-run text/json without password
+✅ Tests: No secret values in output
+✅ Tests: Non-dry-run fails closed, no mutation
+✅ Updated: Old live migration test expects fail-closed
+
+### Remaining Risks
+
+- Live migration implementation (Phase9.6c) will require compensated transaction semantics
+- Vault backup/restore (Phase9.6b) needed before live migration can be safely enabled
+- Schema decision (Phase9.6d) pending after migration strategy is complete
+
+### Next Steps
+
+Phase9.6b: Secure SQLite+vault 0600 backups (no JSON serialization)
+Phase9.6c: Compensated primary+gateway migration with rollback capabilities
+Phase9.6d: CLI activation and final schema decision
+
+---
+
+## 2026-07-14 (Phase9.6a audit-hardening: dead code removal, CLI fail-closed, real CLI tests)
+
+### Changes
+
+1. **`src/openadmindesk/core/profile_secret_migration.py`**:
+   - Removed dead migration body (137 lines) after unconditional `raise RuntimeError`
+   - Removed unused `from openadmindesk.core.account import Account` import
+   - Kept public `migrate_plaintext_profile_secrets` signature and explicit `RuntimeError` only
+
+2. **`tools/migrate_profile_secrets.py`**:
+   - Refactored `main()` → `main(argv=None)` with `parser.parse_args(argv)`
+   - Scan is performed only inside `--dry-run` block
+   - Non-dry-run immediately prints "live migration is disabled" to stderr and returns 1
+   - Removed unreachable vault-unlock/migrate success path
+   - Removed unused imports: `os`, `VaultManager`, `migrate_plaintext_profile_secrets`
+   - Removed unused `--password-env` and `--confirm-cleartext-removal` arguments
+   - Text/json metadata only (no secret values)
+
+3. **`tests/test_profile_secret_migration.py`**:
+   - Renamed 5 misleading `test_cli_*` tests to `test_core_*` (they tested core functions, not CLI)
+   - Added 5 new real CLI tests calling `main([...])` with `capsys`:
+     - `test_cli_dry_run_text` — text output contains names/booleans, not secrets
+     - `test_cli_dry_run_json` — JSON output validates metadata, no secrets
+     - `test_cli_dry_run_no_password` — dry-run works without vault password
+     - `test_cli_non_dry_run_fails_closed` — stderr message, exit code 1
+     - `test_cli_dry_run_db_unchanged` — database unchanged after dry-run
+
+4. **Deleted untracked `test.db`** from root.
+
+### Verification
+
+```bash
+python3 -m py_compile src/openadmindesk/core/profile_secret_migration.py   # PASS
+python3 -m py_compile tools/migrate_profile_secrets.py                     # PASS
+python3 -m py_compile tests/test_profile_secret_migration.py               # PASS
+ruff check src/openadmindesk/core/profile_secret_migration.py              # PASS
+ruff check tools/migrate_profile_secrets.py                                # PASS
+ruff check tests/test_profile_secret_migration.py                          # PASS
+ruff check --no-cache src tools tests                                      # PASS
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_secret_migration.py -v --tb=short  # 18/18 passed
+git diff --check                                                           # clean
+git status --short                                                         # only expected files changed
+```
+
+### Test Results
+
+- 18 tests collected and passed (was 13 before hardening)
+- 5 core scan/migration tests (unchanged)
+- 5 renamed core function tests (was misleading `test_cli_*`)
+- 3 core migration fail-closed tests
+- 5 new real CLI tests
+
+### Known Limitations
+
+- Non-dry-run live migration path remains disabled (intentional, Phase9.6c)
+- Vault backup/restore needed before live migration (Phase9.6b)
+
+---
+
+## 2026-07-14 (Phase9.6a finalize: reviewer PASS, plan split, full verification)
+
+### Reviewer Status
+
+Reviewer PASS — all changes accepted. No further changes requested.
+
+### Plan Update
+
+Split `docs/AUDIT_REMEDIATION_PLAN.md` task 9.6 into four sub-tasks:
+- `[x]` 9.6a Read-only metadata dry-run scan; fail-closed migration; real CLI tests; dead code/import cleanup.
+- `[ ]` 9.6b Secure SQLite+vault backup primitives (mode 0600, no plaintext JSON serialization).
+- `[ ]` 9.6c Compensated primary+gateway migration with rollback capabilities.
+- `[ ]` 9.6d CLI activation and schema-retirement decision.
+
+### Stale Claim Correction
+
+The initial Phase9.6a entry (lines 1694-1705) contained a verification command using `--vault`, `--confirm-cleartext-removal`, and `OPENADMINDESK_VAULT_PASSWORD` — those flags were removed during audit-hardening. The hardening entry (1741+) documents the correct behavior. No functional impact.
+
+### Full Verification (pre-stage)
+
+All commands executed from project root:
+
+```bash
+ruff check --no-cache src tools tests   # exit 0, all checks passed
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider  # exit 0, 349 passed
+poetry run bandit -r src/ -lll          # exit 0, no issues
+poetry run pip-audit                    # exit 0, no known vulnerabilities
+git diff --check                        # clean
+```

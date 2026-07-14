@@ -4,38 +4,73 @@
 from __future__ import annotations
 
 import argparse
-import os
+import json
+import sys
 
-from openadmindesk.core.profile_secret_migration import migrate_plaintext_profile_secrets
-from openadmindesk.core.vault_manager import VaultManager
-from openadmindesk.platform.platform_utils import default_db_path, default_vault_path
+from openadmindesk.core.profile_secret_migration import scan_plaintext_profile_secrets
+from openadmindesk.platform.platform_utils import default_db_path
 
 
-def main() -> int:
+def _print_text_report(report):
+    print(f"Total profiles: {report.total_profiles}")
+    print(f"Affected profiles: {report.affected_profiles}")
+    print(f"  Primary credentials only: {report.primary_only}")
+    print(f"  Gateway credentials only: {report.gateway_only}")
+    print(f"  Mixed (primary + gateway): {report.mixed}")
+    print("\nProfiles with plaintext secrets:")
+    for profile in report.profiles:
+        print(f"  {profile.name}:")
+        print(f"    Primary: password={profile.has_password}, passphrase={profile.has_passphrase}")
+        print(f"    Gateway: password={profile.has_gateway_password}")
+        print(f"    Already migrated: credential_id={profile.has_credential_id}, gateway_credential_id={profile.has_gateway_credential_id}")
+
+
+def _print_json_report(report):
+    report_dict = {
+        "total_profiles": report.total_profiles,
+        "affected_profiles": report.affected_profiles,
+        "primary_only": report.primary_only,
+        "gateway_only": report.gateway_only,
+        "mixed": report.mixed,
+        "profiles": [
+            {
+                "name": p.name,
+                "has_password": p.has_password,
+                "has_passphrase": p.has_passphrase,
+                "has_gateway_password": p.has_gateway_password,
+                "has_credential_id": p.has_credential_id,
+                "has_gateway_credential_id": p.has_gateway_credential_id,
+            }
+            for p in report.profiles
+        ],
+    }
+    print(json.dumps(report_dict, indent=2))
+
+
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", default=default_db_path())
-    parser.add_argument("--vault", default=default_vault_path())
-    parser.add_argument("--password-env", default="OPENADMINDESK_VAULT_PASSWORD")
-    parser.add_argument("--confirm-cleartext-removal", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format for dry-run",
+    )
+    args = parser.parse_args(argv)
 
-    password = os.environ.get(args.password_env)
-    if not password:
-        parser.error(f"set {args.password_env} with the vault master password")
-    vault = VaultManager(args.vault)
-    if not vault.unlock(password):
-        raise SystemExit("failed to unlock vault")
-    result = migrate_plaintext_profile_secrets(
-        args.db,
-        vault,
-        confirm_cleartext_removal=args.confirm_cleartext_removal,
-    )
-    print(
-        "profile secret migration: "
-        f"scanned={result.scanned} migrated={result.migrated} "
-        f"cleared_only={result.cleared_only}"
-    )
-    return 0
+    if args.dry_run:
+        # Dry-run mode: no vault unlock, no mutation, just reporting
+        report = scan_plaintext_profile_secrets(args.db)
+        if args.format == "text":
+            _print_text_report(report)
+        else:
+            _print_json_report(report)
+        return 0
+
+    # Non-dry-run: fail closed immediately before any vault interaction
+    print("live migration is disabled; use --dry-run for assessment", file=sys.stderr)
+    return 1
 
 
 if __name__ == "__main__":
