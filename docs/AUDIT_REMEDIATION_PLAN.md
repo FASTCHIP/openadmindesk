@@ -250,7 +250,7 @@ Goal: Implement additional security measures after the initial publication.
  - [x] 9.5b ProfileEditor validate/compensate vault upsert on store failure
  - [x] 9.5c SessionWizard compensate vault upsert on store failure
  - [x] 9.6a Read-only metadata dry-run scan; fail-closed migration; real CLI tests with capsys; dead code/import cleanup. (refs Phase9.6a audit-hardening)
- - [ ] 9.6b Secure SQLite+vault backup primitives (mode 0600, no plaintext JSON serialization).
+ - [x] 9.6b Secure SQLite+vault backup primitives (mode 0600, no plaintext JSON serialization).
  - [ ] 9.6c Compensated primary+gateway migration with rollback capabilities.
  - [ ] 9.6d CLI activation and schema-retirement decision.
 - [ ] 9.7 SSH ProxyCommand connect-time revalidation/tests.

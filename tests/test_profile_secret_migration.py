@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import builtins
 import json
+import os
 import sqlite3
+import stat
 import sys
 from pathlib import Path
 
 import pytest
 
+from openadmindesk.core.account import Account
 from openadmindesk.core.profile import Profile
 from openadmindesk.core.profile_secret_migration import (
+    ProfileSecretBackupResult,
+    create_profile_secret_backups,
     migrate_plaintext_profile_secrets,
     scan_plaintext_profile_secrets,
 )
@@ -401,3 +407,416 @@ def test_cli_dry_run_db_unchanged(tmp_path, capsys) -> None:
         after = list(conn.execute("SELECT * FROM profiles ORDER BY name"))
 
     assert before == after
+
+
+# ── Phase 9.6b: Secure SQLite+vault backup primitives ────────────────────────
+
+
+def _setup_profile_and_vault(
+    tmp_path: Path,
+) -> tuple[str, str, VaultManager]:
+    """Create a profile store with a legacy plaintext secret row and an
+    encrypted vault containing an account. Returns (db_path, vault_path, vault)."""
+    vault_path = str(tmp_path / "vault.json")
+    vault = VaultManager(vault_path)
+    assert vault.setup_master_password("test-master-pass")
+    assert vault.unlock("test-master-pass")
+
+    acct = Account(
+        name="test-account",
+        username="root",
+        password="secret-password",
+        host="backup-test.example.com",
+        service_type="ssh",
+    )
+    assert vault.add_account(acct)
+
+    db_path = str(tmp_path / "profiles.db")
+    store = ProfileStore(db_path)
+    store.save_profile(
+        Profile(
+            name="LegacyBox",
+            host="legacy.example.com",
+            username="admin",
+        )
+    )
+    # Inject a legacy plaintext secret directly into the database
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE profiles SET password = ?, private_key_passphrase = ? WHERE name = ?",
+            ("old-plaintext-pass", "old-key-pass", "LegacyBox"),
+        )
+        conn.commit()
+
+    vault.lock()
+
+    return db_path, vault_path, vault
+
+
+def _assert_mode_0600(path: str) -> None:
+    """Assert a file has exactly mode 0600 (owner rw, no group/other)."""
+    mode = os.stat(path).st_mode
+    assert stat.S_IMODE(mode) == 0o600, (
+        f"Expected 0600, got {oct(stat.S_IMODE(mode))} for {path}"
+    )
+
+
+# -- 9.6b Tests ---------------------------------------------------------------
+
+
+class TestProfileSecretBackups:
+    """Phase 9.6b: Secure SQLite+vault backup primitives."""
+
+    def test_backup_contains_legacy_row_and_passes_integrity(
+        self, tmp_path: Path
+    ) -> None:
+        """DB backup has seeded legacy row; integrity_check is ok."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+        result = create_profile_secret_backups(db_path, vault_path)
+
+        # Backup contains the legacy row
+        with sqlite3.connect(result.db_backup_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT name, password, private_key_passphrase FROM profiles"
+            ).fetchall()
+            assert len(rows) == 1
+            assert rows[0]["name"] == "LegacyBox"
+            assert rows[0]["password"] == "old-plaintext-pass"
+            assert rows[0]["private_key_passphrase"] == "old-key-pass"
+
+            row = conn.execute("PRAGMA integrity_check").fetchone()
+            assert row[0] == "ok"
+
+    def test_backup_vault_unlocks_independently(
+        self, tmp_path: Path
+    ) -> None:
+        """Encrypted vault backup can be opened independently and contains the
+        expected account."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+
+        # Capture expected account data from the source vault
+        source_vault = VaultManager(vault_path)
+        assert source_vault.unlock("test-master-pass")
+        accounts = source_vault.get_all_accounts()
+        assert len(accounts) == 1
+        expected_id = accounts[0].id
+        expected_name = accounts[0].name
+        expected_password = accounts[0].password
+        source_vault.lock()
+
+        result = create_profile_secret_backups(db_path, vault_path)
+
+        # Open the backup as a completely independent vault
+        backup_vault = VaultManager(result.vault_backup_path)
+        assert backup_vault.unlock("test-master-pass")
+        backup_accounts = backup_vault.get_all_accounts()
+        assert len(backup_accounts) == 1
+        assert backup_accounts[0].id == expected_id
+        assert backup_accounts[0].name == expected_name
+        assert backup_accounts[0].password == expected_password
+
+    def test_backup_files_mode_0600(self, tmp_path: Path) -> None:
+        """Both backup files have exactly mode 0600."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+        result = create_profile_secret_backups(db_path, vault_path)
+
+        _assert_mode_0600(result.db_backup_path)
+        _assert_mode_0600(result.vault_backup_path)
+
+    def test_backup_dir_mode_0700(self, tmp_path: Path) -> None:
+        """New backup directory has mode 0700 (no group/world bits)."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+
+        # Ensure no pre-existing backups dir
+        backups_dir = tmp_path / "backups"
+        assert not backups_dir.exists()
+
+        create_profile_secret_backups(
+            db_path, vault_path, backup_dir=str(backups_dir)
+        )
+
+        mode = os.stat(str(backups_dir)).st_mode
+        perm = stat.S_IMODE(mode)
+        assert perm == 0o700, (
+            f"Expected 0700, got {oct(perm)} for {backups_dir}"
+        )
+
+    def test_backup_default_dir_is_db_parent_backups(
+        self, tmp_path: Path
+    ) -> None:
+        """Default backup directory is <db_parent>/backups."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+        result = create_profile_secret_backups(db_path, vault_path)
+
+        expected_dir = str(tmp_path / "backups")
+        assert Path(result.db_backup_path).parent == Path(expected_dir)
+        assert Path(result.vault_backup_path).parent == Path(expected_dir)
+
+    def test_backup_two_calls_unique_paths(self, tmp_path: Path) -> None:
+        """Two successive backup calls produce different paths (no overwrite)."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+
+        result1 = create_profile_secret_backups(db_path, vault_path)
+        result2 = create_profile_secret_backups(db_path, vault_path)
+
+        assert result1.db_backup_path != result2.db_backup_path
+        assert result1.vault_backup_path != result2.vault_backup_path
+        # Both backup files exist
+        assert os.path.isfile(result1.db_backup_path)
+        assert os.path.isfile(result1.vault_backup_path)
+        assert os.path.isfile(result2.db_backup_path)
+        assert os.path.isfile(result2.vault_backup_path)
+
+    def test_backup_missing_db_fails_no_artifacts(
+        self, tmp_path: Path
+    ) -> None:
+        """Missing DB raises RuntimeError before creating any artifacts."""
+        vault_path = str(tmp_path / "vault.json")
+        _vault = VaultManager(vault_path)
+        assert _vault.setup_master_password("test-master-pass")
+
+        missing_db = str(tmp_path / "nonexistent.db")
+
+        with pytest.raises(RuntimeError, match="not a regular file"):
+            create_profile_secret_backups(missing_db, vault_path)
+
+        # No backup directory created
+        backups_dir = tmp_path / "backups"
+        assert not backups_dir.exists()
+
+    def test_backup_missing_vault_fails_no_artifacts(
+        self, tmp_path: Path
+    ) -> None:
+        """Missing vault raises RuntimeError before creating any artifacts."""
+        db_path = str(tmp_path / "profiles.db")
+        ProfileStore(db_path)
+
+        missing_vault = str(tmp_path / "nonexistent.json")
+
+        with pytest.raises(RuntimeError, match="not a regular file"):
+            create_profile_secret_backups(db_path, missing_vault)
+
+        backups_dir = tmp_path / "backups"
+        assert not backups_dir.exists()
+
+    def test_backup_vault_copy_failure_cleans_both(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Simulated vault copy failure after DB backup cleans both files."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+
+        # Replace builtins.open so the first open() call (vault read) fails.
+        # sqlite3 and tempfile.mkstemp use low-level C file ops, not builtins.open.
+        call_count = 0
+
+        def _failing_open(*args: object, **kwargs: object) -> object:
+            nonlocal call_count
+            call_count += 1
+            raise OSError("Simulated vault read failure")
+
+        monkeypatch.setattr(builtins, "open", _failing_open)
+
+        with pytest.raises(RuntimeError):
+            create_profile_secret_backups(db_path, vault_path)
+
+        # Backup directory exists but contains no leftover files
+        backups_dir = tmp_path / "backups"
+        assert backups_dir.exists()
+        children = list(backups_dir.iterdir())
+        assert children == [], f"Expected empty backup dir, got {children}"
+
+    def test_backup_hashes_match_expected(
+        self, tmp_path: Path
+    ) -> None:
+        """Returned hashes are correct for both backup files."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+
+        # Unlock vault to verify account, then lock again for backup
+        source_vault = VaultManager(vault_path)
+        assert source_vault.unlock("test-master-pass")
+        source_vault.lock()
+
+        result = create_profile_secret_backups(db_path, vault_path)
+
+        # Re-compute and verify
+        import hashlib
+
+        def _sha256(p: str) -> str:
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            return h.hexdigest()
+
+        assert result.db_sha256 == _sha256(result.db_backup_path)
+        assert result.vault_sha256 == _sha256(result.vault_backup_path)
+        # Vault backup hash equals source vault hash (binary identical)
+        assert result.vault_sha256 == _sha256(vault_path)
+
+    def test_backup_no_json_plaintext_artifacts(
+        self, tmp_path: Path
+    ) -> None:
+        """No .json report files are created by the backup process."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+        result = create_profile_secret_backups(db_path, vault_path)
+
+        # The vault backup has .json suffix (it is the encrypted vault copy),
+        # but there should be no additional .json report files.
+        items = list(Path(result.db_backup_path).parent.iterdir())
+        json_files = [p for p in items if p.suffix == ".json"]
+        # Exactly one json file: the vault backup
+        assert len(json_files) == 1
+        assert json_files[0].name == Path(
+            result.vault_backup_path
+        ).name
+
+    def test_backup_special_chars_in_path(
+        self, tmp_path: Path
+    ) -> None:
+        """DB path and backup dir containing spaces, ? and # work correctly."""
+        special_dir = tmp_path / "backup dir with #? and spaces"
+        special_dir.mkdir(parents=True, exist_ok=True)
+
+        db_path = str(special_dir / "my db file?.db")
+        vault_path = str(special_dir / "my vault#.json")
+
+        # Create source files with special chars in paths
+        store = ProfileStore(db_path)
+        store.save_profile(
+            Profile(name="SpecialPath", host="example.com", username="admin")
+        )
+        # Inject legacy plaintext secret
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "UPDATE profiles SET password = ? WHERE name = ?",
+                ("secret-value", "SpecialPath"),
+            )
+            conn.commit()
+
+        vault = VaultManager(vault_path)
+        assert vault.setup_master_password("test-master-pass")
+        assert vault.unlock("test-master-pass")
+        acct = Account(
+            name="test-account",
+            username="root",
+            password="special-password",
+            host="example.com",
+            service_type="ssh",
+        )
+        assert vault.add_account(acct)
+        vault.lock()
+
+        # Run backup with a backup dir containing special chars
+        backup_subdir = tmp_path / "my backups (#?)"
+        result = create_profile_secret_backups(
+            db_path, vault_path, backup_dir=str(backup_subdir)
+        )
+
+        # Verify backup files exist and have correct content
+        assert os.path.isfile(result.db_backup_path)
+        assert os.path.isfile(result.vault_backup_path)
+
+        # DB backup contains the row
+        with sqlite3.connect(result.db_backup_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT name FROM profiles"
+            ).fetchall()
+            assert len(rows) == 1
+            assert rows[0]["name"] == "SpecialPath"
+            row = conn.execute("PRAGMA integrity_check").fetchone()
+            assert row[0] == "ok"
+
+        # Vault backup unlocks independently
+        backup_vault = VaultManager(result.vault_backup_path)
+        assert backup_vault.unlock("test-master-pass")
+        accounts = backup_vault.get_all_accounts()
+        assert len(accounts) == 1
+        assert (
+            accounts[0].password == "special-password"
+        )
+
+        # Hashes are valid
+        import hashlib
+
+        def _sha256(p: str) -> str:
+            h = hashlib.sha256()
+            with open(p, "rb") as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    h.update(chunk)
+            return h.hexdigest()
+
+        assert result.db_sha256 == _sha256(
+            result.db_backup_path
+        )
+        assert result.vault_sha256 == _sha256(
+            result.vault_backup_path
+        )
+
+    def test_backup_symlink_db_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """Symlink database path is rejected with no backup artifacts."""
+        try:
+            os.symlink(
+                str(tmp_path / "nonexistent_target"),
+                str(tmp_path / "db_symlink.db"),
+            )
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this filesystem")
+
+        vault_path = str(tmp_path / "vault.json")
+        _vault = VaultManager(vault_path)
+        assert _vault.setup_master_password("test-master-pass")
+
+        symlink_db = str(tmp_path / "db_symlink.db")
+
+        with pytest.raises(RuntimeError, match="symbolic link"):
+            create_profile_secret_backups(symlink_db, vault_path)
+
+        # No backup directory or artifacts created
+        backups_dir = tmp_path / "backups"
+        assert not backups_dir.exists()
+
+    def test_backup_symlink_vault_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        """Symlink vault path is rejected with no backup artifacts."""
+        db_path = str(tmp_path / "profiles.db")
+        store = ProfileStore(db_path)
+        store.save_profile(Profile(name="Test", host="example.com"))
+
+        try:
+            os.symlink(
+                str(tmp_path / "nonexistent_target"),
+                str(tmp_path / "vault_symlink.json"),
+            )
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this filesystem")
+
+        symlink_vault = str(tmp_path / "vault_symlink.json")
+
+        with pytest.raises(RuntimeError, match="symbolic link"):
+            create_profile_secret_backups(db_path, symlink_vault)
+
+        # No backup directory or artifacts created
+        backups_dir = tmp_path / "backups"
+        assert not backups_dir.exists()
+
+    def test_backup_result_is_frozen_dataclass(
+        self, tmp_path: Path
+    ) -> None:
+        """ProfileSecretBackupResult is a frozen dataclass with the expected attributes."""
+        db_path, vault_path, _ = _setup_profile_and_vault(tmp_path)
+        result = create_profile_secret_backups(db_path, vault_path)
+
+        assert isinstance(result, ProfileSecretBackupResult)
+        with pytest.raises(AttributeError):
+            result.db_backup_path = "/different/path"  # type: ignore[misc]

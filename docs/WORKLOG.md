@@ -1828,3 +1828,44 @@ poetry run bandit -r src/ -lll          # exit 0, no issues
 poetry run pip-audit                    # exit 0, no known vulnerabilities
 git diff --check                        # clean
 ```
+
+---
+
+## 2026-07-14 (Phase9.6b: Secure SQLite+vault backup primitives)
+
+Reviewer PASS — no further changes requested.
+
+Implementation: `create_profile_secret_backups()` + `ProfileSecretBackupResult` in
+`profile_secret_migration.py`; 15 backup tests in `test_profile_secret_migration.py`.
+
+Changes (actual diff): `git diff --stat` below.
+
+### Files Changed
+
+- `docs/AUDIT_REMEDIATION_PLAN.md` — 9.6b [x]
+- `src/openadmindesk/core/profile_secret_migration.py`
+- `tests/test_profile_secret_migration.py`
+- `docs/WORKLOG.md`
+
+### Verification
+
+All commands executed from project root after final hardening round (symlink
+rejection, safe `Path.as_uri()`, special-char and symlink test coverage):
+
+```
+ruff check --no-cache src tools tests  # exit 0, all checks passed
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider  # exit 0, 364 passed
+poetry run bandit -r src/ -lll  # exit 0, no issues
+poetry run pip-audit  # exit 0, no known vulnerabilities
+git diff --check  # clean
+git status --short  # only 4 expected files modified
+```
+
+### Staged Files
+
+```
+ M docs/AUDIT_REMEDIATION_PLAN.md
+ M docs/WORKLOG.md
+ M src/openadmindesk/core/profile_secret_migration.py
+ M tests/test_profile_secret_migration.py
+```
