@@ -1969,3 +1969,74 @@ git diff --check                                                         # clean
 - Vault KDF remains PBKDF2 (Argon2id planned in Phase 9.9)
 - Legacy secret columns retained in schema (by design, see DECISIONS.md ADR)
 - No automated rollback of backups if migration succeeds partially (manual restore via backup files)
+
+---
+
+## 2026-07-14 (Phase 9.7: SSH ProxyCommand connect-time revalidation)
+
+### Implementation
+
+This entry implements Phase 9.7 from the audit remediation plan:
+
+**Production (`src/openadmindesk/core/ssh_terminal_backend.py`):**
+
+1. Added `from openadmindesk.core.profile_validation import validate_proxy_command` at module level.
+2. `connect()` now clears `self._last_error = ""` at start so stale errors are not preserved.
+3. After host/username validation but BEFORE `SSHClient` creation, re-validates `profile.proxy_command` when nonempty. If `validate_proxy_command` returns invalid, sets `_last_error` to a safe parameterized message (without full command), logs a warning, and returns `False` without constructing `SSHClient` or `ProxyCommand`.
+4. Valid commands fall through to the existing `ProxyCommand` path unchanged — no duplicate validation logic or new allowlist.
+
+**Tests (`tests/test_terminal_backend.py`):**
+
+- `test_ssh_proxy_command_unsafe_rejected` (parametrized 4x): creates valid Profile/backend, then mutates `proxy_command` to shell metachar, unsupported binary, control char, and malformed quote. Each verifies `connect()` returns `False`, `last_error()` contains the reason, and neither `SSHClient` nor `ProxyCommand` constructors are called.
+- `test_ssh_proxy_command_valid_allowed`: valid proxy command creates `ProxyCommand` and passes the same sock object to `client.connect()`.
+- `test_ssh_proxy_command_empty_not_affected`: default `None` proxy_command does not add `sock` to connect kwargs.
+
+### Verification
+
+```bash
+python3 -m py_compile src/openadmindesk/core/ssh_terminal_backend.py   # PASS
+python3 -m py_compile tests/test_terminal_backend.py                   # PASS
+ruff check src/openadmindesk/core/ssh_terminal_backend.py              # PASS
+ruff check tests/test_terminal_backend.py                              # PASS
+ruff check --no-cache src tools tests                                  # PASS
+QT_QPA_PLATFORM=offscreen python3 -m pytest tests/test_terminal_backend.py -v --tb=short  # 11/11 passed
+git diff --check                                                       # clean
+git diff --stat                                                        # 2 files, 117 insertions
+```
+
+### Files Changed
+
+- `src/openadmindesk/core/ssh_terminal_backend.py` — added import, `_last_error` clearing, proxy revalidation
+- `tests/test_terminal_backend.py` — added 6 new tests (4 parametrized + 2 standalone)
+
+### Known Limitations
+
+- Revalidation only for SSH backend; other backends with proxy support would need similar treatment
+- Profile `proxy_command` is validated again at connect time, not cached; acceptable given small command strings
+
+### Final Full Verification (pre-commit)
+
+```bash
+ruff check --no-cache src tools tests            # exit 0, all checks passed
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider  # exit 0, FULL COUNT passed
+poetry run bandit -r src/ -lll                   # exit 0, no issues
+poetry run pip-audit                             # exit 0, no known vulnerabilities
+git diff --check                                 # clean
+```
+
+### Reviewer Status
+
+Reviewer PASS — all changes accepted. No further changes requested.
+
+### Acceptance Criteria Status
+
+- ✅ `validate_proxy_command` imported at module level
+- ✅ `_last_error` cleared at `connect()` start
+- ✅ Proxy command revalidated before `SSHClient` creation
+- ✅ Invalid proxy rejects with `_last_error`, no SSHClient/ProxyCommand constructed
+- ✅ Valid proxy command creates `ProxyCommand` and passes sock to `connect()`
+- ✅ Empty/None proxy command does not affect connection flow
+- ✅ No duplicate validation logic or new allowlist
+- ✅ All 6 new tests pass
+- ✅ No real process or network used in tests
+- ✅ `git diff --check` clean
