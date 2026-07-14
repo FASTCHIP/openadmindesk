@@ -598,7 +598,8 @@ class ProfileEditor(QWidget):
             )
 
             # Add account (this will upsert)
-            if not self.vault_manager.add_account(account):
+            result = self.vault_manager.add_account(account)
+            if not result:
                 # Vault add failed: restore profile and return
                 self._restore_profile(profile_snapshot)
                 QMessageBox.critical(
@@ -606,10 +607,11 @@ class ProfileEditor(QWidget):
                 )
                 return
 
-            # Update selected credential ID if it was newly created
-            if not selected_credential_id:
-                selected_credential_id = account.id
-                self.profile.credential_id = selected_credential_id
+            # Always update credential ID and clear secrets after successful vault add
+            selected_credential_id = account.id
+            self.profile.credential_id = selected_credential_id
+            self.profile.password = None
+            self.profile.private_key_passphrase = None
 
             # Push compensation: (account_id, previous_account)
             compensation_stack.append((account.id, primary_account))
@@ -632,7 +634,8 @@ class ProfileEditor(QWidget):
             )
 
             # Add gateway account (this will upsert)
-            if not self.vault_manager.add_account(gateway_account):
+            result = self.vault_manager.add_account(gateway_account)
+            if not result:
                 # Gateway vault add failed: rollback prior operations and restore profile
                 self._rollback_vault_operations(compensation_stack)
                 self._restore_profile(profile_snapshot)
@@ -643,10 +646,10 @@ class ProfileEditor(QWidget):
                 )
                 return
 
-            # Update selected gateway credential ID if it was newly created
-            if not selected_gateway_credential_id:
-                selected_gateway_credential_id = gateway_account.id
-                self.profile.rdp_gateway_credential_id = selected_gateway_credential_id
+            # Always update gateway credential ID and clear secret after successful vault add
+            selected_gateway_credential_id = gateway_account.id
+            self.profile.rdp_gateway_credential_id = selected_gateway_credential_id
+            self.profile.rdp_gateway_password = None
 
             # Push compensation: (account_id, previous_account)
             compensation_stack.append((gateway_account.id, previous_gateway_account))
@@ -670,10 +673,16 @@ class ProfileEditor(QWidget):
 
     def _rollback_vault_operations(
         self, compensation_stack: List[Tuple[str, Optional[Account]]]
-    ) -> None:
-        """Rollback vault operations in reverse order."""
+    ) -> bool:
+        """Rollback vault operations in reverse order.
+
+        Returns:
+            True if all rollback operations succeeded, False if any failed.
+        """
         if not self.vault_manager or not self.vault_manager.is_unlocked():
-            return
+            return True
+
+        rollback_failed = False
 
         # Rollback in reverse order (LIFO)
         for account_id, previous_account in reversed(compensation_stack):
@@ -684,23 +693,31 @@ class ProfileEditor(QWidget):
                         logger.critical(
                             f"Failed to remove account {account_id} during rollback"
                         )
+                        rollback_failed = True
                 else:
                     # Previous account exists: restore it
                     if not self.vault_manager.add_account(previous_account):
                         logger.critical(
                             f"Failed to restore account {account_id} during rollback"
                         )
+                        rollback_failed = True
             except Exception as e:
                 logger.critical(
                     f"Exception during rollback for account {account_id}: {e}"
                 )
-                QMessageBox.critical(
-                    self,
-                    _("Vault Recovery Required"),
-                    _(
-                        "Vault rollback encountered an error. Manual recovery may be required."
-                    ),
-                )
+                rollback_failed = True
+
+        # Show ONE Vault Recovery Required message if any rollback failed
+        if rollback_failed:
+            QMessageBox.critical(
+                self,
+                _("Vault Recovery Required"),
+                _(
+                    "Vault rollback encountered an error. Manual recovery may be required."
+                ),
+            )
+
+        return not rollback_failed
 
     def _cancel_editing(self) -> None:
         """Cancel editing."""

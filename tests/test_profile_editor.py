@@ -1,9 +1,30 @@
 """Tests for profile editor."""
 
+import pytest
+from PySide6.QtWidgets import QMessageBox
 
 from openadmindesk.core.profile import Profile
 from openadmindesk.core.account import Account
 from openadmindesk.ui.profile_editor import ProfileEditor
+
+
+@pytest.fixture(autouse=True)
+def mock_qmessagebox_critical(monkeypatch):
+    """Replace QMessageBox.critical with non-blocking callable for headless tests.
+
+    Collects all calls to QMessageBox.critical and returns them as a list of
+    (parent, title, text) tuples. The mock returns QMessageBox.StandardButton.Ok
+    without blocking.
+    """
+    calls = []
+
+    def mock_critical(parent, title, text):
+        calls.append((parent, title, text))
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QMessageBox, "critical", mock_critical)
+
+    yield calls
 
 
 def test_profile_editor_creation() -> None:
@@ -277,16 +298,16 @@ def test_profile_editor_preserves_existing_account_data_when_updating(tmp_path) 
     assert vault.unlock("secret-passphrase")
 
     # Create an account first
-    account = vault.add_account(
-        Account(
-            name="Test Account",
-            username="admin",
-            password="old-secret",
-            host="example.com",
-            port=22,
-            service_type="ssh"
-        )
+    account_obj = Account(
+        name="Test Account",
+        username="admin",
+        password="old-secret",
+        host="example.com",
+        port=22,
+        service_type="ssh"
     )
+    assert vault.add_account(account_obj)
+    account = account_obj
 
     # Create a profile with the credential ID
     profile = Profile(
@@ -405,16 +426,16 @@ def test_profile_editor_saves_with_existing_selected_credential_id_and_no_new_se
     assert vault.unlock("secret-passphrase")
 
     # Create an account first
-    account = vault.add_account(
-        Account(
-            name="Test Account",
-            username="admin",
-            password="old-secret",
-            host="example.com",
-            port=22,
-            service_type="ssh"
-        )
+    account_obj = Account(
+        name="Test Account",
+        username="admin",
+        password="old-secret",
+        host="example.com",
+        port=22,
+        service_type="ssh"
     )
+    assert vault.add_account(account_obj)
+    account = account_obj
 
     # Create a profile with the credential ID but no new secrets
     profile = Profile(
@@ -707,3 +728,35 @@ def test_profile_editor_existing_gateway_update_then_store_false(tmp_path) -> No
         assert restored_account.username == "old-gw-user"
         assert restored_account.password == "old-gateway-password"
         assert restored_account.host == "old-gw.example.com"
+
+
+def test_profile_editor_rollback_shows_recovery_message_on_remove_failure(tmp_path, mock_qmessagebox_critical):
+    """Test that rollback shows Vault Recovery Required when remove_account fails."""
+    from openadmindesk.core.vault_manager import VaultManager
+    from openadmindesk.core.profile_store import ProfileStore
+    from unittest.mock import patch
+
+    vault = VaultManager(str(tmp_path / "vault.json"))
+    assert vault.setup_master_password("secret-passphrase")
+    assert vault.unlock("secret-passphrase")
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    profile = Profile(name="Test", host="example.com", port=22, username="admin")
+    editor = ProfileEditor(profile, store=store, vault_manager=vault)
+    editor.password_input.setText("new-secret")
+
+    # Mock save_profile to return False to trigger rollback
+    # Mock remove_account to return False to simulate rollback failure
+    with patch.object(store, 'save_profile', return_value=False), \
+         patch.object(vault, 'remove_account', return_value=False):
+        editor._save_profile()
+
+    # Password should still be in the input field
+    assert editor.password_input.text() == "new-secret"
+
+    # Profile should be restored
+    assert profile.credential_id is None
+
+    # Should have shown Vault Recovery Required message
+    titles = [title for _, title, _ in mock_qmessagebox_critical]
+    assert "Vault Recovery Required" in titles

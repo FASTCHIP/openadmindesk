@@ -247,7 +247,7 @@ Goal: Implement additional security measures after the initial publication.
 - [x] 9.3 ProfileEditor requires unlocked vault for entered secrets, upsert/no remove, failure UX, tests (60e8e38 through cbcc3e3/632ca6a).
 - [x] 9.4 SessionWizard saved modes require unlocked vault + successful vault/store writes; temporary-connect remains memory-only; tests. (refs ddd6ace+4804fcb+848e64c)
 - [x] 9.5a VaultManager atomic account removal rollback (refs atomic-rollback-9.5a)
-- [ ] 9.5b ProfileEditor validate/compensate vault upsert on store failure
+- [x] 9.5b ProfileEditor validate/compensate vault upsert on store failure
 - [ ] 9.5c SessionWizard compensate vault upsert on store failure
 - [ ] 9.6 Legacy plaintext migration dry-run/backup/report/schema plan.
 - [ ] 9.7 SSH ProxyCommand connect-time revalidation/tests.

@@ -2,9 +2,21 @@
 
 from __future__ import annotations
 
+import pytest
+from PySide6.QtWidgets import QMessageBox
+
 from openadmindesk.core.profile import SessionType
 from openadmindesk.core.profile_store import Folder, ProfileStore
 from openadmindesk.ui.session_wizard import SessionWizard
+
+
+@pytest.fixture(autouse=True)
+def mock_qmessagebox_critical(monkeypatch):
+    """Replace QMessageBox.critical with non-blocking callable for headless tests."""
+    def mock_critical(parent, title, text):
+        return QMessageBox.StandardButton.Ok
+
+    monkeypatch.setattr(QMessageBox, "critical", mock_critical)
 
 
 def test_session_wizard_protocol_page_supports_every_session_type(tmp_path) -> None:
