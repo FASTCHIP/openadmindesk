@@ -254,7 +254,7 @@ Goal: Implement additional security measures after the initial publication.
  - [x] 9.6c Compensated primary+gateway migration with rollback capabilities.
  - [x] 9.6d CLI activation and schema-retirement decision.
 - [x] 9.7 SSH ProxyCommand connect-time revalidation/tests.
-- [ ] 9.8 Passive periodic vault auto-lock UI timer/tests.
+- [x] 9.8 Passive periodic vault auto-lock UI timer/tests.
 - [ ] 9.9 Versioned vault KDF migration/Argon2id design+tests.
 - [ ] 9.10 Telnet cleartext warning; tunnel logging; executor lifecycle as separate sub-bullets.
 - [ ] 9.11 Packaging/release clean-env verification and demo E402 hygiene.

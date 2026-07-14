@@ -195,6 +195,170 @@ def test_connect_broadcast_and_disconnect_broadcast_with_multi_exec(monkeypatch)
     window._disconnect_broadcast()
     assert tab.broadcast_opted_in is False
 
+# ── vault auto-lock polling ──────────────────────────────────────────────────
+
+
+def test_vault_auto_lock_timer_exists() -> None:
+    """Timer exists, is active, parented to window, with expected interval."""
+    window = MainWindow()
+    assert hasattr(window, '_vault_lock_timer')
+    timer = window._vault_lock_timer
+    assert timer.isActive()
+    assert timer.parent() is window
+    assert timer.interval() == 1000
+
+
+class _FakeVaultLocked:
+    """Fake vault that reports locked."""
+    def is_unlocked(self) -> bool:
+        return False
+
+
+class _FakeVaultUnlocked:
+    """Fake vault that reports unlocked."""
+    def is_unlocked(self) -> bool:
+        return True
+
+
+def test_vault_auto_lock_transition_unlocked_to_locked(monkeypatch) -> None:
+    """Poll detects unlocked→locked transition, updates actions, emits message."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    # Start in unlocked state, vault now locked
+    window.vault_manager = _FakeVaultLocked()  # type: ignore[assignment]
+    window._last_vault_unlocked = True
+
+    window._poll_vault_lock_state()
+
+    # State synced
+    assert window._last_vault_unlocked is False
+    # Exactly one auto-lock message
+    assert len(messages) == 1
+    assert "auto-locked" in messages[0].lower()
+    # Menu actions reflect locked state
+    assert window.unlock_vault_action.isEnabled() is True
+    assert window.lock_vault_action.isEnabled() is False
+
+
+def test_vault_auto_lock_no_duplicate_message_on_stable_locked(monkeypatch) -> None:
+    """Second poll on stable locked does not emit another message."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    window.vault_manager = _FakeVaultLocked()  # type: ignore[assignment]
+    window._last_vault_unlocked = True
+
+    # First poll – transition
+    window._poll_vault_lock_state()
+    assert len(messages) == 1
+
+    # Second poll – stable locked
+    window._poll_vault_lock_state()
+    assert len(messages) == 1
+
+
+def test_vault_auto_lock_stable_unlocked(monkeypatch) -> None:
+    """Stable unlocked: correct actions, no auto-lock message."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    window.vault_manager = _FakeVaultUnlocked()  # type: ignore[assignment]
+    window._last_vault_unlocked = True
+
+    window._poll_vault_lock_state()
+
+    assert len(messages) == 0  # no auto-lock message
+    assert window._last_vault_unlocked is True
+    # Menu reflects unlocked state
+    assert window.unlock_vault_action.isEnabled() is False
+    assert window.lock_vault_action.isEnabled() is True
+
+
+def test_vault_auto_lock_manual_lock_no_auto_message(monkeypatch) -> None:
+    """Manual lock sync prevents subsequent poll from emitting auto-lock."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    # Vault is locked (simulate after manual _lock_vault called)
+    window.vault_manager = _FakeVaultLocked()  # type: ignore[assignment]
+    # _lock_vault already synced this to False
+    window._last_vault_unlocked = False
+
+    window._poll_vault_lock_state()
+
+    # No auto-lock message on stable locked
+    assert len(messages) == 0
+    assert window._last_vault_unlocked is False
+
+
+class _FakeVaultSetup:
+    """Fake vault that supports setup but stays locked."""
+    def is_unlocked(self) -> bool:
+        return False
+    def setup_master_password(self, password: str) -> bool:
+        return True
+
+
+def test_vault_auto_lock_setup_success_no_false_auto_message(monkeypatch) -> None:
+    """Successful vault setup syncs from actual state (locked), no false auto-lock."""
+    import PySide6.QtWidgets
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QInputDialog, 'getText',
+        lambda *args, **kwargs: ("test-pass", True)
+    )
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QMessageBox, 'information',
+        lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QMessageBox, 'warning',
+        lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QMessageBox, 'critical',
+        lambda *args, **kwargs: None
+    )
+
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    window.vault_manager = _FakeVaultSetup()  # type: ignore[assignment]
+    window._last_vault_unlocked = False  # initial state matches vault
+
+    window._setup_vault()
+
+    # After setup, _last_vault_unlocked synced from vault.is_unlocked() (False)
+    assert window._last_vault_unlocked is False
+    # Poll should see no unlocked→locked transition → no auto-lock message
+    window._poll_vault_lock_state()
+    auto_lock_msgs = [m for m in messages if "auto-locked" in m.lower()]
+    assert len(auto_lock_msgs) == 0
+    # Actions reflect locked state
+    assert window.unlock_vault_action.isEnabled() is True
+    assert window.lock_vault_action.isEnabled() is False
+
+
 def test_main_window_applies_terminal_settings_to_open_ssh_tabs() -> None:
     class FakeTerminal:
         def __init__(self) -> None:

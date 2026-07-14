@@ -36,6 +36,8 @@ import copy
 import logging
 logger = logging.getLogger(__name__)
 
+VAULT_POLL_INTERVAL_MS = 1000
+
 
 class MainWindow(QMainWindow):
     """Main application window."""
@@ -76,6 +78,13 @@ class MainWindow(QMainWindow):
         
         # Load profiles into tree
         self.connection_tree.refresh()
+
+        # Vault auto-lock polling timer
+        self._last_vault_unlocked = self.vault_manager.is_unlocked()
+        self._vault_lock_timer = QTimer(self)
+        self._vault_lock_timer.setInterval(VAULT_POLL_INTERVAL_MS)
+        self._vault_lock_timer.timeout.connect(self._poll_vault_lock_state)
+        self._vault_lock_timer.start()
 
     def _connect_signals(self) -> None:
         """Wire up signals between components."""
@@ -462,6 +471,15 @@ class MainWindow(QMainWindow):
         self.unlock_vault_action.setEnabled(not unlocked)
         self.lock_vault_action.setEnabled(unlocked)
 
+    def _poll_vault_lock_state(self) -> None:
+        """Periodic check for vault auto-lock transitions."""
+        unlocked = self.vault_manager.is_unlocked()
+        if self._last_vault_unlocked and not unlocked:
+            # Transition unlocked → locked (auto-lock)
+            self.connection_event_area.showMessage("Vault auto-locked", 5000)
+        self._update_vault_menu()
+        self._last_vault_unlocked = unlocked
+
     def _setup_vault(self) -> None:
         """Setup master password for vault."""
         if self.vault_manager.is_unlocked():
@@ -487,6 +505,7 @@ class MainWindow(QMainWindow):
             return
 
         if self.vault_manager.setup_master_password(password):
+            self._last_vault_unlocked = self.vault_manager.is_unlocked()
             QMessageBox.information(self, "Success",
                 "Master password set. Unlock the vault to add accounts.")
             self.connection_event_area.showMessage("Vault created", 3000)
@@ -504,6 +523,7 @@ class MainWindow(QMainWindow):
             )
             if ok and password:
                 if self.vault_manager.unlock(password):
+                    self._last_vault_unlocked = True
                     self.connection_event_area.showMessage("Vault unlocked", 3000)
                     self._update_vault_menu()
                 else:
@@ -513,6 +533,7 @@ class MainWindow(QMainWindow):
     def _lock_vault(self) -> None:
         """Lock the vault."""
         self.vault_manager.lock()
+        self._last_vault_unlocked = False
         self.connection_event_area.showMessage("Vault locked", 3000)
         self._update_vault_menu()
 

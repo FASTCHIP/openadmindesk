@@ -2040,3 +2040,103 @@ Reviewer PASS — all changes accepted. No further changes requested.
 - ✅ All 6 new tests pass
 - ✅ No real process or network used in tests
 - ✅ `git diff --check` clean
+
+---
+
+## 2026-07-14 (Phase 9.8: Passive periodic vault auto-lock UI timer/tests)
+
+### Plan
+
+Implement passive polling timer that detects vault auto-lock transitions and
+updates UI state without password prompts or side effects.
+
+### Production (main_window.py)
+
+**New module-level constant:**
+- `VAULT_POLL_INTERVAL_MS = 1000` — timer fires every 1 second.
+
+**New instance fields initialized in `__init__` (after `connection_tree.refresh()`):**
+- `self._last_vault_unlocked = self.vault_manager.is_unlocked()` — captures initial
+  unlocked state so the first poll sees stable state.
+- `self._vault_lock_timer = QTimer(self)` — parented to window.
+- Interval set to `VAULT_POLL_INTERVAL_MS`, timeout connected to
+  `self._poll_vault_lock_state`, then started.
+
+**New method `_poll_vault_lock_state`:**
+- Calls `self.vault_manager.is_unlocked()` (which enforces core idle timeout).
+- Detects transition `unlocked→locked` → shows `"Vault auto-locked"` message
+  in `connection_event_area` for 5 seconds.
+- Always calls `_update_vault_menu()` and syncs `_last_vault_unlocked`.
+- No password prompts, no side effects on activity rail, no broad UI refactor.
+
+**Sync points (`_last_vault_unlocked`) to prevent false auto-lock messages:**
+- `_setup_vault` — sync from actual `vault_manager.is_unlocked()` after
+  `setup_master_password` succeeds (expected `False`, since setup does not
+  leave vault unlocked).
+- `_unlock_vault` — set `True` after `vault_manager.unlock()` succeeds.
+- `_lock_vault` — set `False` after `vault_manager.lock()`.
+
+### Tests (test_main_window.py)
+
+6 tests using fake vault classes and monkeypatched event area (no sleeps,
+no event-loop timing, no dialogs):
+
+1. **`test_vault_auto_lock_timer_exists`** — timer is active, parent, interval 1000ms.
+2. **`test_vault_auto_lock_transition_unlocked_to_locked`** — poll detects
+   unlocked→locked, updates actions (unlock=enabled, lock=disabled), emits
+   exactly one auto-lock message.
+3. **`test_vault_auto_lock_no_duplicate_message_on_stable_locked`** — second
+   poll on stable locked does not emit another message.
+4. **`test_vault_auto_lock_stable_unlocked`** — stable unlocked: correct
+   actions (unlock=disabled, lock=enabled), no auto-lock message.
+5. **`test_vault_auto_lock_manual_lock_no_auto_message`** — manual lock sync
+   (`_last_vault_unlocked=False`) prevents subsequent poll from emitting
+   auto-lock message.
+6. **`test_vault_auto_lock_setup_success_no_false_auto_message`** — successful
+   vault setup with `is_unlocked()=False` syncs `_last_vault_unlocked` from
+   actual state; subsequent poll emits no false auto-lock message. Mocks
+   `QInputDialog.getText`, `QMessageBox.information/warning/critical`.
+
+### Reviewer Status
+
+Reviewer PASS — all changes accepted. No further changes requested.
+
+### Files Changed
+
+- `src/openadmindesk/ui/main_window.py` — added constant, timer, poll method,
+  sync points.
+- `tests/test_main_window.py` — added 6 vault auto-lock tests.
+- `docs/AUDIT_REMEDIATION_PLAN.md` — marked 9.8 [x].
+
+### Verification (pre-commit)
+
+```bash
+ruff check --no-cache src tools tests
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider
+poetry run bandit -r src/ -lll
+poetry run pip-audit
+git diff --check
+```
+
+### Known Limitations
+
+- Poll checks every 1000ms; fastest auto-lock detection is one interval.
+- No password prompts or timer side effects (intentional).
+- Manual unlock/lock sync prevents false auto-lock messages on stable state.
+
+### Review Fix 2026-07-14
+
+**Problem:** `_setup_vault` was setting `_last_vault_unlocked = True` unconditionally
+after `setup_master_password` succeeded. But `VaultManager.setup_master_password`
+does **not** set `_is_unlocked`, so `is_unlocked()` returns `False` after setup.
+This would cause the next poll to see `True→False` and emit a false "Vault auto-locked"
+message.
+
+**Fix:** Changed to `self._last_vault_unlocked = self.vault_manager.is_unlocked()`,
+synchronizing from actual vault state (expected `False`).
+
+**Added test:** `test_vault_auto_lock_setup_success_no_false_auto_message` —
+uses `_FakeVaultSetup` (is_unlocked returns False, setup returns True), mocks
+`QInputDialog.getText` and `QMessageBox` methods, calls `_setup_vault` then
+`_poll_vault_lock_state`, asserts no "auto-locked" message was emitted and
+actions reflect locked state.
