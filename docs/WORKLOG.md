@@ -2571,3 +2571,66 @@ Expected files only; no commit/push.
 ### Remaining risk
 
 Explicit v1→v2 re-encryption/backup/rollback remains Phase 9.9c.
+
+---
+
+## 2026-07-15 Phase 9.9c explicit vault upgrade
+
+### Implementation
+
+**New files:**
+- `src/openadmindesk/core/vault_upgrade.py` (852 lines) — upgrade orchestration
+  with `upgrade_vault_v1_to_v2()` and helpers: `_load_source_document`,
+  `_validate_raw_accounts`, `_sha256_file`, `_create_secure_backup`,
+  `_snapshot_v1_accounts`, `_build_v2_candidate`, `_verify_v2_accounts`,
+  `_restore_v1_backup`, `_cleanup_candidate`.
+- `tests/test_vault_upgrade.py` (1281 lines) — 45 tests covering all upgrade
+  paths, rollback, error handling, backup deletion failure, and secret-safe
+  error metadata.
+
+**Changed files (docs):**
+- `docs/SECURITY_MODEL.md` — replaced aspirational PBKDF2-only claim with
+  versioned v1/v2 reality and upgrade subsection.
+- `docs/VAULT_SPEC.md` — replaced aspirational base64/check-record design with
+  actual JSON vault, version types, Argon defaults, AES-GCM storage,
+  upgrade transaction semantics.
+- `docs/AUDIT_REMEDIATION_PLAN.md` — 9.9c [x] (core explicit re-encryption
+  backup/verified rollback); 9.9d remains [ ].
+- `docs/WORKLOG.md` — this entry.
+
+### Behavior
+
+- `upgrade_vault_v1_to_v2(Path, password) -> VaultUpgradeResult` — atomic
+  explicit upgrade; never automatic on startup.
+- Same password; validates and decrypts all accounts.
+- Same-directory raw `0o600` fsynced backup; source/candidate hashes and all
+  fields verified.
+- Atomic `os.replace`; installed verification; post-replace-only atomic rollback
+  retaining backup.
+- Backup deletion failure returns success with `retained_backup_path`.
+- Errors are secret-safe (no plaintext passwords/account values in logs or
+  exception messages).
+- No UI/CLI yet (9.9d). Caller must ensure no active writer during upgrade.
+
+### Exact final evidence
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_vault_upgrade.py -q --tb=short -p no:cacheprovider` | 0 | 45 passed in 4.00s |
+| `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest -q --tb=short -p no:cacheprovider` | 0 | 526 passed in 19.43s |
+| `ruff check src tests` | 0 | All checks passed |
+| `bandit -q -r src/openadmindesk/core/vault_upgrade.py` | 0 | No findings |
+| `python3 -m py_compile src/openadmindesk/core/vault_upgrade.py tests/test_vault_upgrade.py` | 0 | PASS |
+| `git diff --check` | 0 | Clean |
+
+### Scope before docs
+
+Exactly two untracked code/test files: `vault_upgrade.py` and
+`test_vault_upgrade.py`. No other Python/tests/config/lockfiles changed.
+
+### Remaining risk
+
+- 9.9d user-visible UI/CLI absent.
+- Exclusive/no-active-writer coordination is caller responsibility.
+
+**No commit or push performed.**
