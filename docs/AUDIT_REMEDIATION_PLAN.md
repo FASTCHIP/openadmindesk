@@ -255,7 +255,10 @@ Goal: Implement additional security measures after the initial publication.
  - [x] 9.6d CLI activation and schema-retirement decision.
 - [x] 9.7 SSH ProxyCommand connect-time revalidation/tests.
 - [x] 9.8 Passive periodic vault auto-lock UI timer/tests.
-- [ ] 9.9 Versioned vault KDF migration/Argon2id design+tests.
+- [x] 9.9a Version-aware v1 format/KDF metadata (LEGACY_VERSION, detect_version, hex shape validation, fail-closed unlock, PBKDF metadata/timestamps, constant-time key_hash, updated_at save-rollback).
+- [ ] 9.9b Argon2id v2 new vaults + v1 unlock.
+- [ ] 9.9c Explicit v1→v2 re-encryption backup/rollback.
+- [ ] 9.9d Optional UI/CLI upgrade flow.
 - [ ] 9.10 Telnet cleartext warning; tunnel logging; executor lifecycle as separate sub-bullets.
 - [ ] 9.11 Packaging/release clean-env verification and demo E402 hygiene.
 

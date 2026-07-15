@@ -2140,3 +2140,190 @@ uses `_FakeVaultSetup` (is_unlocked returns False, setup returns True), mocks
 `QInputDialog.getText` and `QMessageBox` methods, calls `_setup_vault` then
 `_poll_vault_lock_state`, asserts no "auto-locked" message was emitted and
 actions reflect locked state.
+
+---
+
+## 2026-07-15 (Phase 9.9a: Versioned vault KDF migration/Argon2id design+tests)
+
+### Implementation
+
+**`src/openadmindesk/core/vault_format.py`:**
+
+1. Replaced dead `SCHEMA` dict with real version-aware validators.
+2. Added module-level constants: `LEGACY_VERSION = "1.0"`, `LATEST_VERSION = 2`.
+3. Added `detect_version(data)` — returns 1 for "1.0", 2 for int 2, None for unknown.
+4. Added `_validate_v1(data)` — requires `version`, `salt`, `key_hash`, `accounts`;
+   `iv`/`ciphertext` are optional backward-compatible fields; metadata fields
+   (`kdf`, `kdf_params`, `created_at`, `updated_at`) are optional with type checks.
+5. Added `_validate_v2(data)` — structural placeholder for v2 (argon2id) vaults;
+   requires `version` (int 2), `salt`, `kdf`, `kdf_params`, `password_hash`,
+   `accounts`, `created_at`, `updated_at`. No v2 crypto/setup implemented.
+6. `validate_vault_format` delegates to the version-specific validator.
+7. `create_empty_vault` continues to use `LEGACY_VERSION` ("1.0").
+
+**`src/openadmindesk/core/vault_manager.py`:**
+
+1. Added `import hmac` for constant-time comparison.
+2. `setup_master_password` now writes PBKDF metadata and ISO UTC timestamps:
+   `kdf="pbkdf2-sha256"`, `kdf_params={"iterations": 100000, "length": 32}`,
+   `created_at`, `updated_at`.
+3. `unlock` now uses `detect_version` to verify version support; returns `False`
+   for v2 or unknown versions until Phase 9.9b; reads stored `kdf_params` with
+   safe bounds enforcement (iterations >= 100000 <= 10M, length == 32); falls
+   back to defaults when params absent; uses `hmac.compare_digest` for
+   constant-time key_hash comparison.
+4. `_derive_key` accepts optional `iterations` and `length` parameters (defaults
+   unchanged: 100000, 32).
+5. `_save_vault` updates `updated_at` when the metadata field is present; old v1
+   vaults without metadata remain readable.
+6. Added `_utc_now_iso()` helper for UTC timestamp generation.
+
+**`tests/test_vault_format.py`:** 25 new tests (30 total):
+- `detect_version` for v1, v2, unknown, None
+- v1 structural validation: missing key_hash/salt/accounts, non-string types,
+  non-list accounts, missing iv/cipher allowed, optional metadata accepted,
+  metadata type rejection
+- v2 structural validation: complete structure, missing fields, wrong version
+  type, non-list accounts, missing password_hash
+- Empty salt/key_hash template compat (create_empty_vault)
+- Constants (LEGACY_VERSION, LATEST_VERSION)
+- Serialization roundtrip with metadata
+
+**`tests/test_vault_manager.py`:** 17 new tests (32 total):
+- Legacy v1 old shape (no metadata/iv/cipher) unlocks
+- New v1 has kdf params and timestamps after setup
+- New v1 unlocks with correct password
+- Missing key_hash rejected
+- Unknown version (v2) rejected
+- Stored iterations (200000) used successfully
+- Unsafe iterations (< 100000) bounded to default causing unlock failure
+- Unsafe length (!= 32) bounded to default causing unlock failure
+- Wrong password rejected via compare_digest
+- updated_at changes after save
+- Legacy v1 without iv/cipher still writable
+- Serialization roundtrip preserves metadata
+- create_empty_vault defaults to LEGACY_VERSION
+- detect_version via manager vault
+- kdf_params absent uses defaults
+- Empty/corrupt vault file returns False
+
+Combined: 62 tests.
+
+### Verification
+
+```bash
+python3 -m py_compile src/openadmindesk/core/vault_format.py  # PASS
+python3 -m py_compile src/openadmindesk/core/vault_manager.py  # PASS
+python3 -m py_compile tests/test_vault_format.py                # PASS
+python3 -m py_compile tests/test_vault_manager.py               # PASS
+ruff check --no-cache src tools tests                          # All checks passed
+QT_QPA_PLATFORM=offscreen python3 -m pytest tests/test_vault_format.py tests/test_vault_manager.py -v --tb=short  # 62/62 passed
+QT_QPA_PLATFORM=offscreen python3 -m pytest -q --tb=short -p no:cacheprovider  # 435 passed (was 393)
+poetry run bandit -r src/ -lll                                 # No high-severity issues
+poetry run pip-audit                                            # No known vulnerabilities
+git diff --check                                                # Clean
+git status --short                                              # Only 4 expected files changed
+```
+
+### Files Changed
+
+- `src/openadmindesk/core/vault_format.py` — version-aware validators, detect_version, v2 placeholder
+- `src/openadmindesk/core/vault_manager.py` — PBKDF metadata, safe-bounds unlock, hmac.compare_digest
+- `tests/test_vault_format.py` — 25 new format tests
+- `tests/test_vault_manager.py` — 17 new manager tests
+
+### Known Limitations
+
+- v2 structural validation is defined but v2 unlock/creation is not implemented (Phase 9.9b)
+- No Argon2id import or crypto — deferred to 9.9b
+- `create_empty_vault` still defaults to LEGACY_VERSION (will change in 9.9b)
+- Plan split 9.9 into a-d; 9.9a remains unchecked; 9.9b-d are follow-ups
+
+---
+
+## 2026-07-15 (Phase 9.9a improvement: hex validation, fail-closed unlock, updated_at save-rollback)
+
+### vault_format.py
+1. Added `_is_valid_hex_shape(s, expected_hex_chars)` helper that validates hex
+   shape for non-empty strings (empty allowed for template compat).
+2. `_validate_v1` now validates salt (32 hex chars = 16 bytes) and key_hash
+   (16 hex chars = 8 bytes) hex shape when non-empty. Malformed hex or wrong
+   length → False.
+
+### vault_manager.py
+1. `unlock`: explicitly rejects empty salt or empty key_hash before any
+   derivation (fail-closed), returning False.
+2. `_save_vault`: snapshots `updated_at` presence/value before mutation; on any
+   exception, restores prior timestamp in-memory. Removed redundant
+   `os.chmod(self.vault_path, 0o600)` after `os.replace()` (temp file already
+   0o600). `temp_path` is cleared after successful replace so cleanup
+   `finally` does not unlink the target.
+
+### Tests
+**`tests/test_vault_format.py`:** 8 new tests (38 total, 5+33 new):
+- `test_v1_rejects_non_string_updated_at` — non-string updated_at rejected
+- 7 hex shape tests: valid hex for salt/key_hash accepted, wrong-length salt
+  (short/long) rejected, wrong-length key_hash rejected, non-hex chars in
+  salt/key_hash rejected
+
+**`tests/test_vault_manager.py`:** 6 new tests (38 total, 15+23 new):
+- `test_unlock_rejects_empty_salt` — empty salt never unlocks
+- `test_unlock_rejects_empty_key_hash` — empty key_hash never unlocks
+- `test_unlock_rejects_bad_hex_salt` — non-hex salt rejected
+- `test_unlock_rejects_bad_hex_key_hash` — non-hex key_hash rejected
+- `test_unlock_rejects_short_salt` — wrong-length salt rejected
+- `test_save_vault_failure_restores_updated_at` — monkeypatched os.replace
+  failure verifies updated_at restored, disk unchanged, mode still 0600 on
+  subsequent successful save
+
+Combined: 76 tests.
+
+### Final Verification (pre-commit)
+
+```bash
+ruff check --no-cache src tools tests             # exit 0, all checks passed
+QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 \
+  pytest -q --tb=short -p no:cacheprovider        # exit 0, 449/449 passed
+poetry run bandit -r src/ -lll                    # exit 0, no high-severity issues
+poetry run pip-audit                              # exit 0, no known vulnerabilities
+git diff --check                                  # clean
+git status --short                                # 5 expected files modified
+```
+
+### Final Test Counts
+
+- vault_format: 38 tests (5 original + 33 new)
+- vault_manager: 38 tests (15 original + 23 new)
+- Combined: 76 targeted tests
+- Full suite: 449 total (was 393 before Phase 9.9a)
+
+### Files Changed
+
+- `docs/AUDIT_REMEDIATION_PLAN.md` — split 9.9 into 9.9a-d subitems
+- `docs/WORKLOG.md` — this entry
+- `src/openadmindesk/core/vault_format.py` — detect_version, hex validation, v1/v2 validators
+- `src/openadmindesk/core/vault_manager.py` — PBKDF metadata, safe-bounds unlock, hmac.compare_digest, updated_at rollback
+- `tests/test_vault_format.py` — 38 tests
+- `tests/test_vault_manager.py` — 38 tests
+
+### Reviewer Status
+
+Reviewer PASS — all changes accepted. No further changes requested.
+
+### Acceptance Criteria Status
+
+- ✅ LEGACY_VERSION="1.0", LATEST_VERSION=2 constants
+- ✅ `detect_version(data)` returns 1/2/None
+- ✅ v1 validation requires version, salt, key_hash, accounts; iv/ciphertext optional
+- ✅ salt (32 hex) and key_hash (16 hex) hex shape validated when non-empty; template empty allowed
+- ✅ Optional v1 metadata: kdf, kdf_params, created_at, updated_at with type checks
+- ✅ Old v1 without metadata still valid/unlockable with defaults
+- ✅ v2 structural validation defined (no crypto)
+- ✅ Setup writes PBKDF metadata and ISO UTC timestamps
+- ✅ Unlock uses stored kdf_params with safe bounds (iter 100k-10M, length 32); defaults when absent
+- ✅ Empty or missing salt/key_hash returns False (fail-closed)
+- ✅ Unknown version or v2 returns False
+- ✅ Constant-time `hmac.compare_digest` for key_hash
+- ✅ `_derive_key` accepts iterations/length params
+- ✅ `_save_vault` snapshots updated_at; restores on failure; no redundant post-replace chmod
+- ✅ All 20 existing vault tests preserved; 56 new tests added
