@@ -10,6 +10,11 @@ import json
 LEGACY_VERSION = "1.0"
 LATEST_VERSION = 2
 
+# Required kdf_params keys for v2 vaults
+_REQUIRED_V2_KDF_KEYS = frozenset({
+    "time_cost", "memory_cost", "parallelism", "hash_len", "version"
+})
+
 
 def _is_valid_hex_shape(s: str, expected_hex_chars: int) -> bool:
     """Check if a non-empty string is valid hex of the expected length.
@@ -101,9 +106,11 @@ def _validate_v1(data: Dict[str, Any]) -> bool:
 def _validate_v2(data: Dict[str, Any]) -> bool:
     """Validate v2 vault structure (LATEST_VERSION 2).
 
-    Required: version (int 2), salt, kdf (str "argon2id"), kdf_params (dict),
-    password_hash (str), accounts (list), created_at (str), updated_at (str).
-    No v2 crypto/setup implementation yet.
+    Required: version (int 2), salt (hex str 32 chars, empty allowed template),
+    kdf (str exactly "argon2id"), kdf_params (dict with int-not-bool values),
+    password_hash (hex str 64 chars, empty allowed template),
+    accounts (list), created_at (str), updated_at (str).
+    No iv/ciphertext/key_hash fields in v2.
     """
     if not isinstance(data.get("version"), int):
         return False
@@ -118,23 +125,46 @@ def _validate_v2(data: Dict[str, Any]) -> bool:
     if not isinstance(data["accounts"], list):
         return False
 
-    if not isinstance(data.get("kdf"), str) or not data["kdf"]:
+    # kdf must be exactly "argon2id"
+    kdf = data.get("kdf")
+    if not isinstance(kdf, str) or kdf != "argon2id":
         return False
 
-    if not isinstance(data.get("kdf_params"), dict):
+    # kdf_params must have exactly the required keys (time_cost, memory_cost,
+    # parallelism, hash_len, version); each value must be int (not bool)
+    kdf_params = data.get("kdf_params")
+    if not isinstance(kdf_params, dict):
+        return False
+    if set(kdf_params.keys()) != _REQUIRED_V2_KDF_KEYS:
+        return False
+    for val in kdf_params.values():
+        if isinstance(val, bool) or not isinstance(val, int):
+            return False
+
+    # salt: empty allowed (template), otherwise exactly 32 hex chars
+    salt = data.get("salt")
+    if not isinstance(salt, str):
+        return False
+    if salt and not _is_valid_hex_shape(salt, 32):
         return False
 
-    if not isinstance(data.get("password_hash"), str) or not data["password_hash"]:
+    # password_hash: empty allowed (template), otherwise exactly 64 hex chars
+    password_hash = data.get("password_hash")
+    if not isinstance(password_hash, str):
+        return False
+    if password_hash and not _is_valid_hex_shape(password_hash, 64):
         return False
 
-    if not isinstance(data.get("salt"), str) or not data["salt"]:
+    # created_at and updated_at must be strings (empty template allowed)
+    if not isinstance(data.get("created_at"), str):
+        return False
+    if not isinstance(data.get("updated_at"), str):
         return False
 
-    if not isinstance(data.get("created_at"), str) or not data["created_at"]:
-        return False
-
-    if not isinstance(data.get("updated_at"), str) or not data["updated_at"]:
-        return False
+    # No legacy v1 fields in v2
+    for legacy_field in ("iv", "ciphertext", "key_hash"):
+        if legacy_field in data:
+            return False
 
     return True
 
@@ -142,19 +172,46 @@ def _validate_v2(data: Dict[str, Any]) -> bool:
 class VaultFormat:
     """Defines the vault file format."""
 
-    # Vault format version
-    VERSION = LEGACY_VERSION
+    # Vault format version (default is latest)
+    VERSION = LATEST_VERSION
 
     @staticmethod
-    def create_empty_vault() -> Dict[str, Any]:
-        """Create an empty vault structure (v1 legacy format)."""
+    def create_empty_vault(version: int = LATEST_VERSION) -> Dict[str, Any]:
+        """Create an empty vault structure.
+
+        Args:
+            version: The vault format version to produce.
+                     LATEST_VERSION (2) produces a v2 argon2id template.
+                     LEGACY_VERSION ("1.0") produces the old v1 PBKDF2 template.
+
+        Returns:
+            Dict suitable for serialization.
+        """
+        if version == 1 or version == LEGACY_VERSION:
+            return {
+                "version": LEGACY_VERSION,
+                "salt": "",
+                "key_hash": "",
+                "iv": "",
+                "ciphertext": "",
+                "accounts": []
+            }
+        # Default: v2 template
         return {
-            "version": LEGACY_VERSION,
+            "version": LATEST_VERSION,
             "salt": "",
-            "key_hash": "",
-            "iv": "",
-            "ciphertext": "",
-            "accounts": []
+            "kdf": "argon2id",
+            "kdf_params": {
+                "time_cost": 2,
+                "memory_cost": 19456,
+                "parallelism": 1,
+                "hash_len": 32,
+                "version": 19,
+            },
+            "password_hash": "",
+            "accounts": [],
+            "created_at": "",
+            "updated_at": ""
         }
 
     @staticmethod

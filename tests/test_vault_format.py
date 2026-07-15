@@ -13,14 +13,21 @@ _KEYHASH_16HEX = "deadbeef12345678"
 
 
 def test_vault_format_creation() -> None:
-    """Test vault format creation."""
+    """Test vault format creation (default is v2)."""
     vault = VaultFormat.create_empty_vault()
     assert vault is not None
-    assert vault["version"] == VaultFormat.VERSION
+    assert vault["version"] == VaultFormat.VERSION  # 2
     assert "salt" in vault
-    assert "iv" in vault
-    assert "ciphertext" in vault
+    assert "kdf" in vault
+    assert "kdf_params" in vault
+    assert "password_hash" in vault
     assert "accounts" in vault
+    assert "created_at" in vault
+    assert "updated_at" in vault
+    # No legacy fields in default v2
+    assert "iv" not in vault
+    assert "ciphertext" not in vault
+    assert "key_hash" not in vault
 
 
 def test_vault_format_validation() -> None:
@@ -249,17 +256,19 @@ def test_v1_rejects_non_string_updated_at() -> None:
 
 
 def test_v2_structural_validation() -> None:
-    """V2 structural validation accepts complete v2 vault structure.
-
-    Note: no v2 crypto/setup is implemented yet. This verifies the
-    structural placeholder definition only.
-    """
+    """V2 structural validation accepts complete v2 vault structure."""
     vault = {
         "version": 2,
         "salt": _SALT_32HEX,
         "kdf": "argon2id",
-        "kdf_params": {"time_cost": 2, "memory_cost": 19456, "parallelism": 1},
-        "password_hash": "abcdef1234567890abcdef1234567890",
+        "kdf_params": {
+            "time_cost": 2,
+            "memory_cost": 19456,
+            "parallelism": 1,
+            "hash_len": 32,
+            "version": 19,
+        },
+        "password_hash": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
         "accounts": [],
         "created_at": "2026-07-15T12:00:00Z",
         "updated_at": "2026-07-15T12:00:00Z"
@@ -318,8 +327,8 @@ def test_v2_rejects_missing_password_hash() -> None:
 
 
 def test_consecutive_salt_key_hash_empty_allowed() -> None:
-    """Empty salt and key_hash in template are valid (create_empty_vault compat)."""
-    vault = VaultFormat.create_empty_vault()
+    """Empty salt and key_hash in v1 template are valid."""
+    vault = VaultFormat.create_empty_vault(version=LEGACY_VERSION)
     assert vault["salt"] == ""
     assert vault["key_hash"] == ""
     assert VaultFormat.validate_vault_format(vault)
@@ -433,4 +442,130 @@ def test_v1_rejects_key_hash_non_hex_chars() -> None:
         "key_hash": "zzzzzzzzzzzzzzzz",  # 16 non-hex chars
         "accounts": []
     }
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+# --- v2 kdf_params key validation ---
+
+
+def _v2_good() -> dict:
+    """Return a valid v2 vault dict for mutation in tests."""
+    return {
+        "version": 2,
+        "salt": _SALT_32HEX,
+        "kdf": "argon2id",
+        "kdf_params": {
+            "time_cost": 2,
+            "memory_cost": 19456,
+            "parallelism": 1,
+            "hash_len": 32,
+            "version": 19,
+        },
+        "password_hash": "a" * 64,
+        "accounts": [],
+        "created_at": "2026-07-15T12:00:00Z",
+        "updated_at": "2026-07-15T12:00:00Z",
+    }
+
+
+def test_v2_template_validates() -> None:
+    """Empty v2 template validates (all defaults present)."""
+    assert VaultFormat.validate_vault_format(VaultFormat.create_empty_vault())
+
+
+def test_v2_rejects_missing_kdf_params_key() -> None:
+    """v2 rejects when one required kdf_params key is missing."""
+    vault = _v2_good()
+    vault["kdf_params"].pop("time_cost")
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_extra_kdf_params_key() -> None:
+    """v2 rejects when an unknown key is present in kdf_params."""
+    vault = _v2_good()
+    vault["kdf_params"]["extra"] = 1
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_bool_in_kdf_params() -> None:
+    """v2 rejects bool values in kdf_params."""
+    vault = _v2_good()
+    vault["kdf_params"]["time_cost"] = True
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_non_int_kdf_params() -> None:
+    """v2 rejects non-int values in kdf_params."""
+    vault = _v2_good()
+    vault["kdf_params"]["memory_cost"] = "big"
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_wrong_kdf() -> None:
+    """v2 rejects kdf other than 'argon2id'."""
+    vault = _v2_good()
+    vault["kdf"] = "pbkdf2-sha256"
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_accepts_empty_salt_template() -> None:
+    """v2 accepts empty salt in template only."""
+    vault = _v2_good()
+    vault["salt"] = ""
+    assert VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_accepts_empty_password_hash_template() -> None:
+    """v2 accepts empty password_hash in template only."""
+    vault = _v2_good()
+    vault["password_hash"] = ""
+    assert VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_wrong_hex_salt() -> None:
+    """v2 rejects salt with bad hex shape (non-empty)."""
+    vault = _v2_good()
+    vault["salt"] = "zz" * 16
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_short_salt() -> None:
+    """v2 rejects salt with wrong length (non-empty)."""
+    vault = _v2_good()
+    vault["salt"] = "abcd"
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_wrong_hex_password_hash() -> None:
+    """v2 rejects password_hash with bad hex shape."""
+    vault = _v2_good()
+    vault["password_hash"] = "zz" * 32
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_short_password_hash() -> None:
+    """v2 rejects password_hash with wrong length."""
+    vault = _v2_good()
+    vault["password_hash"] = "abcd" * 4  # 16 chars
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_non_string_created_at() -> None:
+    """v2 rejects non-string created_at."""
+    vault = _v2_good()
+    vault["created_at"] = 123
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_legacy_iv_field() -> None:
+    """v2 rejects vault containing legacy iv field."""
+    vault = _v2_good()
+    vault["iv"] = "some_iv"
+    assert not VaultFormat.validate_vault_format(vault)
+
+
+def test_v2_rejects_legacy_key_hash_field() -> None:
+    """v2 rejects vault containing legacy key_hash field."""
+    vault = _v2_good()
+    vault["key_hash"] = "dead"
     assert not VaultFormat.validate_vault_format(vault)

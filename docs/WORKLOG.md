@@ -1282,6 +1282,50 @@ git diff --check
 
 ---
 
+## 2026-07-15 (Create Phase 9.9b implementation plan)
+
+### Plan
+
+Created detailed implementation plan for Phase 9.9b: Vault Argon2id v2 Implementation.
+
+### Implementation
+
+1. **Created implementation plan document**:
+   - Location: `docs/superpowers/plans/2026-07-15-vault-argon2id-v2-implementation.md`
+   - Structure: Goal, Architecture, Tech Stack, Global Constraints, Tasks 1-6
+   - Includes: Read-only baseline, acceptance coverage gaps, diff review, targeted corrections, runtime verification, documentation completion
+   - Self-review: Spec coverage, placeholder scan, interface consistency, scope check
+
+2. **Added WORKLOG entry**: Short plan note added to `docs/WORKLOG.md`
+
+### Verification
+
+```bash
+# Documentation checks
+git diff --check -- docs/WORKLOG.md
+git diff --check -- docs/superpowers/plans/2026-07-15-vault-argon2id-v2-implementation.md
+```
+
+### Files Changed
+
+- `docs/superpowers/plans/2026-07-15-vault-argon2id-v2-implementation.md` - Created implementation plan
+- `docs/WORKLOG.md` - Added plan entry
+
+### Verification Results
+
+- Plan structure: Complete ✅
+- Task breakdown: Concrete steps ✅
+- No TBD/TODO markers ✅
+- Scope: Limited to vault format/manager/tests ✅
+- Documentation checks: Clean ✅
+
+### Known Limitations
+
+- Implementation not yet executed (planning task)
+- Actual verification pending Task 1-6 execution
+
+---
+
 ## 2026-07-13 (Fix ProfileStore credential boundary tests)
 
 ### Implementation
@@ -2327,3 +2371,203 @@ Reviewer PASS — all changes accepted. No further changes requested.
 - ✅ `_derive_key` accepts iterations/length params
 - ✅ `_save_vault` snapshots updated_at; restores on failure; no redundant post-replace chmod
 - ✅ All 20 existing vault tests preserved; 56 new tests added
+## 2026-07-15 Phase 9.9b Argon2id v2 vault
+
+### Plan
+
+This entry marks the documentation phase for Phase 9.9b. Task:
+
+1. Create `docs/superpowers/specs/2026-07-15-vault-argon2id-v2-design.md` with complete specification for Argon2id v2 vault implementation
+2. Update WORKLOG with plan entry
+3. No implementation changes, no tests, no lockfiles, no commits
+
+---
+
+## 2026-07-15 (Implementation plan prepared)
+
+### Plan
+
+Prepared detailed implementation plan for Phase 9.9b: Vault Argon2id v2 Implementation.
+
+### Implementation
+
+1. **Created implementation plan document**:
+   - Location: `docs/superpowers/plans/2026-07-15-vault-argon2id-v2-implementation.md`
+   - Corrected REQUIRED SUB-SKILL to Markdown blockquote format
+   - Fixed Tech Stack to exact project floors (Python >=3.12,<3.14; argon2-cffi>=23; cryptography>=42)
+   - Added global constraint: no automated commit/push; final success only READY_FOR_MANUAL_COMMIT
+   - Updated Task 1 expected status to list current WIP files
+   - Fixed Task 2 tests: service_type instead of protocol, proper Account fields, unlock before add_account
+   - Fixed Task 2 Test B: extended after existing same-manager assertions
+   - Fixed Task 2 Test C: used pytest monkeypatch instead of unittest.mock.patch
+   - Updated Task 4 to specify implementation authorization with mini-plan
+   - Updated Task 5 to break commands into checkbox steps with exact expected outcomes
+   - Fixed Plan Self-Review: removed placeholder acronyms, stated "Placeholder-marker scan: clean"
+   - Removed trailing whitespace from entire plan
+
+2. **Updated WORKLOG**: Added concise 6-12 line entry
+
+### Verification
+
+```bash
+# Documentation checks
+git diff --check -- docs/WORKLOG.md
+git diff --no-index --check /dev/null docs/superpowers/plans/2026-07-15-vault-argon2id-v2-implementation.md
+rg -n 'protocol=|deadbeef|dummy|unittest.mock|TBD|TODO|git commit|git push|argon2-cffi 21|cryptography 41' <plan>
+```
+
+### Files Changed
+
+- `docs/superpowers/plans/2026-07-15-vault-argon2id-v2-implementation.md` - Created and corrected implementation plan
+- `docs/WORKLOG.md` - Added concise plan entry
+
+### Verification Results
+
+- Plan structure: Complete ✅
+- Task breakdown: Concrete steps ✅
+- No TBD/TODO markers ✅
+- Scope: Limited to vault format/manager/tests ✅
+- Documentation checks: Clean ✅
+- Whitespace: Clean ✅
+- Forbidden patterns: None found ✅
+
+### Known Limitations
+
+- Implementation not yet executed (planning task)
+- Actual verification pending Task 1-6 execution
+- No code/tests changed in this task
+- No commit performed
+
+### Implementation
+
+#### 1. Specification document creation
+- Created `docs/superpowers/specs/2026-07-15-vault-argon2id-v2-design.md` with comprehensive Phase 9.9b specification
+- Included context, scope, architecture, data flow, error handling, acceptance criteria, and implementation scope
+- Explicitly excluded Phase 9.9c migration from scope
+
+#### 2. WORKLOG update
+- Added this plan entry
+
+### Verification
+
+```bash
+# Documentation inspection
+ls -la docs/superpowers/specs/2026-07-15-vault-argon2id-v2-design.md
+grep -c "9.9b" docs/superpowers/specs/2026-07-15-vault-argon2id-v2-design.md
+git diff --stat docs/
+```
+
+### Files Changed
+
+- `docs/superpowers/specs/2026-07-15-vault-argon2id-v2-design.md` - New specification document
+- `docs/WORKLOG.md` - Added plan entry
+
+### Known Limitations
+
+- No implementation changes made (documentation only)
+- No tests run (documentation only)
+- Implementation will follow this specification in subsequent tasks
+
+---
+
+## 2026-07-15 Phase 9.9b Argon2id v2 vault
+
+### Changed files (4 files, +901/-77 lines)
+
+1. `src/openadmindesk/core/vault_format.py` (+95/-37):
+   - Added `_REQUIRED_V2_KDF_KEYS` set for exact kdf_params validation
+   - `VaultFormat.VERSION` → `LATEST_VERSION` (int 2)
+   - `create_empty_vault(version=LATEST_VERSION)` produces v2 template with all 5 kdf_params defaults (time_cost, memory_cost, parallelism, hash_len, version)
+   - `create_empty_vault(version=LEGACY_VERSION)` produces v1 template (backward compat)
+   - `_validate_v2` tightened: requires exact kdf_params key set; rejects bool/non-int values; enforces salt 32 hex, password_hash 64 hex; rejects legacy iv/ciphertext/key_hash fields
+
+2. `src/openadmindesk/core/vault_manager.py` (+285/-42):
+   - Added `ARGON2_VERSION` constant, safe bounds, default params
+   - `_derive_key_v2(password, salt, params)` — Argon2id derivation with version validation
+   - `_compute_v2_verifier(derived_key)` — HMAC-SHA256 64-char verifier
+   - `setup_master_password` creates v2 vault (argon2id params, no key_hash); snapshots prior state and restores on save/Argon failure; checks `_save_vault()` return value explicitly
+   - `unlock` dispatches to `_unlock_v1` (PBKDF2) or `_unlock_v2` (Argon2id)
+   - `_unlock_v2` validates kdf_params keys, int-not-bool, safe bounds, version; derive Argon2; verify HMAC; fail-closed on Argon2Error
+
+3. `tests/test_vault_format.py` (+161/-28):
+   - Updated 4 tests to use explicit `LEGACY_VERSION` or v2 assertions
+   - Added 14 new v2 validation tests: missing/extra/bool kdf_params keys, wrong kdf, empty salt/password_hash template, bad hex shapes, legacy field rejection
+
+4. `tests/test_vault_manager.py` (+437/-27):
+   - Updated 6 tests for v2 defaults (kdf→argon2id, detect_version→2, etc.)
+   - Added 14 new v2 manager tests: password_hash tamper, salt tamper, empty salt/hash, params missing/bool/out-of-range/wrong-version rejected before derive (spy), Argon2 error fail-closed, setup save/Argon failure restores state, HMAC verifier determinism, v1 old vault still writable
+
+### Verification
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `python3 -m py_compile` (4 files) | 0 | PASS |
+| `ruff check` (4 files) | 0 | PASS |
+| `pytest test_vault_format.py test_vault_manager.py -q` | 0 | 106 passed (2.5s) |
+| `git diff --stat` | — | 4 files, +901/-77 |
+| `git diff --check` | — | No whitespace errors
+
+---
+
+## Specification self-review correction
+
+Corrected factual inaccuracies in `docs/superpowers/specs/2026-07-15-vault-argon2id-v2-design.md` after independent verification against actual implementation:
+
+1. **Python support**: Changed from "3.8+" to "3.12+" (matches pyproject.toml `requires-python: ">=3.12,<3.14"`)
+2. **LEGACY_VERSION**: Changed from int `1` to string `"1.0"` (matches `vault_format.py` constant)
+3. **Validation responsibilities**: Clarified that `vault_format._validate_v2` handles structure/type/hex validation, while `VaultManager` validates safe numeric bounds and Argon2 version before derivation
+4. **AES-GCM nonce**: Changed from "IV generation unchanged (16 random bytes)" to "Nonce generation: 12 random bytes" (matches `vault_manager.py` line 496: `secrets.token_bytes(12)`)
+5. **Argon2id defaults**: Updated example/default parameters from `time_cost=3, memory_cost=65536, parallelism=4` to `time_cost=2, memory_cost=19456, parallelism=1` (matches implementation constants)
+6. **Derivation API**: Fixed from fictional `argon2.Lib.argon2.hash_secret(...)` to actual `argon2.low_level.hash_secret_raw(..., type=Type.ID, version=19)` and removed incorrect "first 32 bytes" extraction
+7. **Error handling**: Replaced fictional `argon2.exceptions.Lib.argon2.Lib.argon2.TypeError` and `VerifyMismatchError` with correct `argon2.exceptions.Argon2Error` and clarified that wrong password is detected by HMAC verifier failure
+8. **Acceptance criteria**: Removed ✅ checkmarks (requirements not yet confirmed by final verification) and removed outdated test count claims ("106+", "285+"); updated to require complete exit 0 and actual count reporting
+9. **Save-failure rollback**: Added explicit requirement for save-failure rollback and existing file preservation in acceptance criteria
+10. **Scope**: Clarified expected scope to include only 4 Python files, WORKLOG, spec document, and `AUDIT_REMEDIATION_PLAN.md` for checkbox update after all verifications; explicitly excluded Phase 9.9c
+11. **Verification plan**: Changed "after each commit" to "after each logical change" (no automated commits in workflow)
+12. **Markdown references**: Fixed from placeholder-style `[text] (path)` to proper Markdown links `[text](path)`
+13. **Document status**: Changed from "Draft → Final (after review)" to "Approved" (design already approved by user)
+14. **Dependency handling**: Removed misleading claim that missing argon2 dependency is "handled gracefully" at runtime; clarified that import occurs at module level and dependency is already present in pyproject.toml
+
+**No Python code or tests were modified.** No commits were created. Only documentation was corrected to match existing implementation.
+
+---
+
+## 2026-07-15 Phase 9.9b implementation plan prepared
+
+- Created `docs/superpowers/plans/2026-07-15-vault-argon2id-v2-implementation.md` for staged test, review, correction, verification, and documentation gates.
+- No production code or tests changed during planning.
+- No implementation checks claimed and no commit created.
+
+---
+
+## 2026-07-15 Phase 9.9b final verification
+
+### Implementation summary
+
+New vaults v2 Argon2id defaults 2/19456/1/32/version19; v1 PBKDF2 unlock/read/write retained; fresh-manager encrypted account roundtrip and secret-free error logging covered; 9.9c migration excluded.
+
+### Changed functional files
+
+vault_format.py, vault_manager.py, test_vault_format.py, test_vault_manager.py; docs spec/plan/worklog/remediation.
+
+### Exact evidence table with commands/results
+
+* py_compile four files — exit0
+* `ruff check --no-cache src tools tests` — exit0, All checks passed
+* targeted two vault files pytest — exit0, 108 passed in 2.85s
+* full headless pytest — exit0, 481 passed in 16.23s
+* `poetry run bandit -r src/ -lll` — exit0, no issues, 12950 lines, 1 disabled/skipped
+* `poetry run pip-audit` — exit0, No known vulnerabilities found
+* `git diff --check` — exit0
+
+### Reviewer
+
+Independent deepseek-reviewer final verdict PASS; no confirmed CRITICAL/HIGH/MEDIUM findings.
+
+### Scope
+
+Expected files only; no commit/push.
+
+### Remaining risk
+
+Explicit v1→v2 re-encryption/backup/rollback remains Phase 9.9c.

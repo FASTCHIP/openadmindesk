@@ -17,11 +17,29 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.backends import default_backend
+import argon2.low_level
+import argon2.exceptions
+from argon2.low_level import Type as Argon2Type
 
 from openadmindesk.core.account import Account
-from openadmindesk.core.vault_format import VaultFormat, detect_version
+from openadmindesk.core.vault_format import VaultFormat, detect_version, LATEST_VERSION
 
 logger = logging.getLogger(__name__)
+
+# --- Argon2id v2 constants ---
+_ARGON2_TIME_COST = 2
+_ARGON2_MEMORY_COST = 19456  # KiB
+_ARGON2_PARALLELISM = 1
+_ARGON2_HASH_LEN = 32  # bytes
+_ARGON2_VERSION = argon2.low_level.ARGON2_VERSION  # 19 (0x13)
+
+# Safe bounds for Argon2 parameters (inclusive)
+_ARGON2_TIME_MIN = 1
+_ARGON2_TIME_MAX = 10
+_ARGON2_MEMORY_MIN = 8192
+_ARGON2_MEMORY_MAX = 262144
+_ARGON2_PARALLELISM_MIN = 1
+_ARGON2_PARALLELISM_MAX = 8
 
 
 class VaultManager:
@@ -59,44 +77,80 @@ class VaultManager:
         return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
     def setup_master_password(self, master_password: str) -> bool:
-        """Setup master password for the vault."""
+        """Setup master password for the vault (v2 Argon2id).
+
+        Snapshots prior internal state so that on any failure (Argon derivation,
+        vault save, etc.) the manager state is restored to what it was before
+        the call. Never leaves stale v2 partial state.
+        """
+        # Snapshot prior state
+        prior_master_key = self._master_key
+        prior_vault_data = self._vault_data
+        prior_is_unlocked = self._is_unlocked
+        prior_last_activity_at = self._last_activity_at
+
         try:
-            # Generate a key from the master password using PBKDF2
+            # Generate a 16-byte salt (32 hex chars)
             salt = secrets.token_bytes(16)
-            key = self._derive_key(master_password, salt)
 
-            # Store a verification hash so we can detect wrong passwords later
-            key_hash = hashlib.sha256(key).hexdigest()[:16]
-
-            # Store the salt for future unlocks
-            self._master_key = key
-            self._vault_data = VaultFormat.create_empty_vault()
-            self._vault_data["salt"] = salt.hex()
-            self._vault_data["key_hash"] = key_hash
-
-            # Add PBKDF metadata and timestamps for new-style v1 vaults
-            now = self._utc_now_iso()
-            self._vault_data["kdf"] = "pbkdf2-sha256"
-            self._vault_data["kdf_params"] = {
-                "iterations": 100000,
-                "length": 32
+            # Derive encryption key using Argon2id with default parameters
+            params = {
+                "time_cost": _ARGON2_TIME_COST,
+                "memory_cost": _ARGON2_MEMORY_COST,
+                "parallelism": _ARGON2_PARALLELISM,
+                "hash_len": _ARGON2_HASH_LEN,
+                "version": _ARGON2_VERSION,
             }
+            key = self._derive_key_v2(master_password, salt, params)
+
+            # Compute password verifier (HMAC-SHA256, full 64 hex chars)
+            password_hash = self._compute_v2_verifier(key)
+
+            # Store the key and create v2 vault structure
+            self._master_key = key
+            self._vault_data = VaultFormat.create_empty_vault(version=LATEST_VERSION)
+            now = self._utc_now_iso()
+            self._vault_data["salt"] = salt.hex()
+            self._vault_data["kdf"] = "argon2id"
+            self._vault_data["kdf_params"] = params
+            self._vault_data["password_hash"] = password_hash
             self._vault_data["created_at"] = now
             self._vault_data["updated_at"] = now
 
-            # Save the vault
-            self._save_vault()
+            # Save the vault atomically; check return value explicitly
+            if not self._save_vault():
+                # Restore prior state on save failure
+                self._master_key = prior_master_key
+                self._vault_data = prior_vault_data
+                self._is_unlocked = prior_is_unlocked
+                self._last_activity_at = prior_last_activity_at
+                logger.error("Failed to save vault during master password setup")
+                return False
 
             return True
+        except argon2.exceptions.Argon2Error:
+            # Restore prior state on Argon derivation failure; no password in log
+            self._master_key = prior_master_key
+            self._vault_data = prior_vault_data
+            self._is_unlocked = prior_is_unlocked
+            self._last_activity_at = prior_last_activity_at
+            logger.error("Argon2 derivation failed during master password setup")
+            return False
         except Exception as e:
+            # Restore prior state on any other failure
+            self._master_key = prior_master_key
+            self._vault_data = prior_vault_data
+            self._is_unlocked = prior_is_unlocked
+            self._last_activity_at = prior_last_activity_at
             logger.error(f"Failed to setup master password: {e}")
             return False
 
     def unlock(self, master_password: str) -> bool:
         """Unlock the vault with master password.
 
-        Supports v1 (LEGACY_VERSION "1.0") vaults with PBKDF2.
-        Unknown versions or v2 return False until Phase 9.9b.
+        Supports v1 (LEGACY_VERSION "1.0") vaults with PBKDF2 and
+        v2 (LATEST_VERSION 2) vaults with Argon2id.
+        Unknown versions return False.
         """
         try:
             # Load the vault file
@@ -109,10 +163,23 @@ class VaultManager:
             # Detect version
             version_num = detect_version(vault_data)
 
-            # Only support v1 in this task
-            if version_num != 1:
-                return False
+            # Support v1 (PBKDF2)
+            if version_num == 1:
+                return self._unlock_v1(master_password, vault_data)
 
+            # Support v2 (Argon2id)
+            if version_num == 2:
+                return self._unlock_v2(master_password, vault_data)
+
+            # Unknown version
+            return False
+        except Exception as e:
+            logger.error(f"Failed to unlock vault: {e}")
+            return False
+
+    def _unlock_v1(self, master_password: str, vault_data: Dict) -> bool:
+        """Unlock a v1 vault using PBKDF2. Called by unlock()."""
+        try:
             # Validate vault structure
             if not VaultFormat.validate_vault_format(vault_data):
                 return False
@@ -150,13 +217,86 @@ class VaultManager:
             self._vault_data = vault_data
             self._is_unlocked = True
             self._touch()
-
-            # Clear cache when vault is unlocked
             self._clear_cache()
-
             return True
         except Exception as e:
-            logger.error(f"Failed to unlock vault: {e}")
+            logger.error(f"Failed to unlock v1 vault: {e}")
+            return False
+
+    def _unlock_v2(self, master_password: str, vault_data: Dict) -> bool:
+        """Unlock a v2 vault using Argon2id. Called by unlock()."""
+        try:
+            # Validate vault structure
+            if not VaultFormat.validate_vault_format(vault_data):
+                return False
+
+            # Reject empty salt or password_hash before derivation (fail closed)
+            salt_str = vault_data.get("salt", "")
+            expected_hash = vault_data.get("password_hash", "")
+            if not salt_str or not expected_hash:
+                return False
+
+            # Extract and validate Argon2 parameters
+            kdf_params = vault_data.get("kdf_params", {})
+            time_cost = kdf_params.get("time_cost", _ARGON2_TIME_COST)
+            memory_cost = kdf_params.get("memory_cost", _ARGON2_MEMORY_COST)
+            parallelism = kdf_params.get("parallelism", _ARGON2_PARALLELISM)
+            hash_len = kdf_params.get("hash_len", _ARGON2_HASH_LEN)
+            version = kdf_params.get("version", _ARGON2_VERSION)
+
+            # Reject bool disguised as int before safe-bounds check
+            for name, val in [("time_cost", time_cost), ("memory_cost", memory_cost),
+                              ("parallelism", parallelism), ("hash_len", hash_len),
+                              ("version", version)]:
+                if isinstance(val, bool) or not isinstance(val, int):
+                    logger.error("v2 unlock rejected: %s is not an int", name)
+                    return False
+
+            # Enforce safe bounds (fail closed on out-of-range)
+            if not (_ARGON2_TIME_MIN <= time_cost <= _ARGON2_TIME_MAX):
+                logger.error("v2 unlock rejected: time_cost %s out of range", time_cost)
+                return False
+            if not (_ARGON2_MEMORY_MIN <= memory_cost <= _ARGON2_MEMORY_MAX):
+                logger.error("v2 unlock rejected: memory_cost %s out of range", memory_cost)
+                return False
+            if not (_ARGON2_PARALLELISM_MIN <= parallelism <= _ARGON2_PARALLELISM_MAX):
+                logger.error("v2 unlock rejected: parallelism %s out of range", parallelism)
+                return False
+            if hash_len != _ARGON2_HASH_LEN:
+                logger.error("v2 unlock rejected: hash_len %s != %s", hash_len, _ARGON2_HASH_LEN)
+                return False
+            if version != _ARGON2_VERSION:
+                logger.error("v2 unlock rejected: version %s != %s", version, _ARGON2_VERSION)
+                return False
+
+            # Derive key using Argon2id
+            salt = bytes.fromhex(vault_data["salt"])
+            key = self._derive_key_v2(master_password, salt, {
+                "time_cost": time_cost,
+                "memory_cost": memory_cost,
+                "parallelism": parallelism,
+                "hash_len": hash_len,
+                "version": version,
+            })
+
+            # Verify password using HMAC-SHA256 verifier (constant-time)
+            actual_hash = self._compute_v2_verifier(key)
+            if not hmac.compare_digest(actual_hash, expected_hash):
+                return False  # Wrong password
+
+            # Store key and data
+            self._master_key = key
+            self._vault_data = vault_data
+            self._is_unlocked = True
+            self._touch()
+            self._clear_cache()
+            return True
+        except argon2.exceptions.Argon2Error:
+            # Fail closed: do not leak password details
+            logger.error("Argon2 derivation failed during v2 unlock")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to unlock v2 vault: {e}")
             return False
 
     def lock(self) -> None:
@@ -255,6 +395,97 @@ class VaultManager:
         )
         key = kdf.derive(password.encode())
         return key
+
+    def _derive_key_v2(self, password: str, salt: bytes,
+                       params: Optional[Dict[str, int]] = None) -> bytes:
+        """Derive encryption key from password using Argon2id.
+
+        Args:
+            password: The master password.
+            salt: 16-byte salt (32 hex chars).
+            params: Dict with time_cost, memory_cost, parallelism, hash_len,
+                    version. If None or missing keys, defaults are used.
+
+        Returns:
+            32 bytes of derived key material.
+
+        Raises:
+            ValueError: If parameters are out of safe bounds or non-int/bool.
+            argon2.exceptions.Argon2Error: If Argon2 derivation itself fails.
+        """
+        if params is None:
+            params = {}
+
+        time_cost = params.get("time_cost", _ARGON2_TIME_COST)
+        memory_cost = params.get("memory_cost", _ARGON2_MEMORY_COST)
+        parallelism = params.get("parallelism", _ARGON2_PARALLELISM)
+        hash_len = params.get("hash_len", _ARGON2_HASH_LEN)
+        version = params.get("version", _ARGON2_VERSION)
+
+        # Reject bool disguised as int
+        for name, val in [("time_cost", time_cost), ("memory_cost", memory_cost),
+                          ("parallelism", parallelism), ("hash_len", hash_len),
+                          ("version", version)]:
+            if isinstance(val, bool) or not isinstance(val, int):
+                raise ValueError(
+                    f"{name} must be an int, got {type(val).__name__}"
+                )
+
+        # Enforce safe bounds
+        if not (_ARGON2_TIME_MIN <= time_cost <= _ARGON2_TIME_MAX):
+            raise ValueError(
+                f"time_cost {time_cost} out of range "
+                f"[{_ARGON2_TIME_MIN}, {_ARGON2_TIME_MAX}]"
+            )
+        if not (_ARGON2_MEMORY_MIN <= memory_cost <= _ARGON2_MEMORY_MAX):
+            raise ValueError(
+                f"memory_cost {memory_cost} out of range "
+                f"[{_ARGON2_MEMORY_MIN}, {_ARGON2_MEMORY_MAX}]"
+            )
+        if not (_ARGON2_PARALLELISM_MIN <= parallelism <= _ARGON2_PARALLELISM_MAX):
+            raise ValueError(
+                f"parallelism {parallelism} out of range "
+                f"[{_ARGON2_PARALLELISM_MIN}, {_ARGON2_PARALLELISM_MAX}]"
+            )
+        if hash_len != _ARGON2_HASH_LEN:
+            raise ValueError(
+                f"hash_len must be {_ARGON2_HASH_LEN}, got {hash_len}"
+            )
+        if version != _ARGON2_VERSION:
+            raise ValueError(
+                f"version must be {_ARGON2_VERSION}, got {version}"
+            )
+
+        try:
+            key = argon2.low_level.hash_secret_raw(
+                secret=password.encode("utf-8"),
+                salt=salt,
+                time_cost=time_cost,
+                memory_cost=memory_cost,
+                parallelism=parallelism,
+                hash_len=hash_len,
+                type=Argon2Type.ID,
+                version=_ARGON2_VERSION,
+            )
+            return key
+        except argon2.exceptions.Argon2Error:
+            # Fail closed: do not leak password or intermediate values in logs
+            logger.error("Argon2 key derivation failed (v2)")
+            raise
+
+    @staticmethod
+    def _compute_v2_verifier(derived_key: bytes) -> str:
+        """Compute the v2 password verifier using HMAC-SHA256.
+
+        HMAC-SHA256(derived_key, b"openadmindesk-vault-v2-verifier")
+        produces 32 bytes, returned as a 64-character hex string.
+
+        Each unlock attempt still performs the full Argon2id derivation
+        before verification; the HMAC verifier is used only to check
+        correctness of the derived key material.
+        """
+        context = b"openadmindesk-vault-v2-verifier"
+        return hmac.new(derived_key, context, hashlib.sha256).hexdigest()
 
     def _encrypt_data(self, data: str) -> tuple[str, str]:
         """Encrypt data using AES-GCM."""

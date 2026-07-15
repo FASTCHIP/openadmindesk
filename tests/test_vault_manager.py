@@ -4,6 +4,13 @@ import tempfile
 import os
 import stat
 import json
+import logging
+import hashlib
+import hmac
+import secrets
+
+import argon2.low_level
+from argon2.low_level import Type as Argon2Type
 
 from openadmindesk.core.vault_manager import VaultManager
 from openadmindesk.core.account import Account
@@ -646,8 +653,8 @@ def test_legacy_v1_without_metadata_unlocks(tmp_path) -> None:
     assert manager.is_unlocked()
 
 
-def test_new_v1_has_kdf_params_and_timestamps(tmp_path) -> None:
-    """New vault setup writes kdf params and created_at/updated_at."""
+def test_v2_has_kdf_params_and_timestamps(tmp_path) -> None:
+    """New v2 vault setup writes argon2id kdf params and timestamps."""
     vault_path = tmp_path / "vault.json"
     manager = VaultManager(str(vault_path))
     assert manager.setup_master_password("testpassword123")
@@ -655,15 +662,24 @@ def test_new_v1_has_kdf_params_and_timestamps(tmp_path) -> None:
     with open(vault_path) as f:
         data = json.load(f)
 
-    assert data["kdf"] == "pbkdf2-sha256"
-    assert data["kdf_params"] == {"iterations": 100000, "length": 32}
+    assert data["kdf"] == "argon2id"
+    assert data["kdf_params"]["time_cost"] == 2
+    assert data["kdf_params"]["memory_cost"] == 19456
+    assert data["kdf_params"]["parallelism"] == 1
+    assert data["kdf_params"]["hash_len"] == 32
+    assert data["kdf_params"]["version"] == 19
     assert "created_at" in data
     assert "updated_at" in data
     assert data["created_at"] == data["updated_at"]
+    assert "key_hash" not in data
+    assert "iv" not in data
+    assert "ciphertext" not in data
+    assert len(data["salt"]) == 32
+    assert len(data["password_hash"]) == 64
 
 
-def test_new_v1_unlocks_with_correct_password(tmp_path) -> None:
-    """New v1 vault with metadata unlocks with correct password."""
+def test_v2_unlocks_with_correct_password(tmp_path) -> None:
+    """New v2 vault with argon2id unlocks with correct password."""
     vault_path = tmp_path / "vault.json"
     manager = VaultManager(str(vault_path))
     assert manager.setup_master_password("testpassword123")
@@ -688,8 +704,8 @@ def test_vault_missing_key_hash_rejected(tmp_path) -> None:
     assert not manager.unlock("anypassword")
 
 
-def test_vault_unknown_version_rejected(tmp_path) -> None:
-    """Unknown vault version is rejected by unlock."""
+def test_malformed_v2_rejected(tmp_path) -> None:
+    """Malformed v2 vault data is rejected by unlock."""
     vault_path = tmp_path / "vault.json"
     data = {
         "version": 2,
@@ -700,6 +716,20 @@ def test_vault_unknown_version_rejected(tmp_path) -> None:
         "accounts": [],
         "created_at": "t",
         "updated_at": "t"
+    }
+    _create_vault_file(vault_path, data)
+
+    manager = VaultManager(str(vault_path))
+    assert not manager.unlock("anypassword")
+
+
+def test_unknown_version_rejected(tmp_path) -> None:
+    """Unknown vault version is rejected by unlock."""
+    vault_path = tmp_path / "vault.json"
+    data = {
+        "version": 99,
+        "salt": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+        "accounts": []
     }
     _create_vault_file(vault_path, data)
 
@@ -819,8 +849,8 @@ def test_legacy_v1_without_iv_cipher_is_still_writable(tmp_path) -> None:
     assert manager.get_account("write_test") is not None
 
 
-def test_serialization_roundtrip_v1_with_metadata(tmp_path) -> None:
-    """Serialize and deserialize roundtrip preserves v1 metadata."""
+def test_serialization_roundtrip_v2_with_metadata(tmp_path) -> None:
+    """Serialize and deserialize roundtrip preserves v2 argon2id metadata."""
     vault_path = tmp_path / "vault.json"
     manager = VaultManager(str(vault_path))
     assert manager.setup_master_password("testpassword")
@@ -832,19 +862,20 @@ def test_serialization_roundtrip_v1_with_metadata(tmp_path) -> None:
     manager2 = VaultManager(str(vault_path))
     assert manager2.unlock("testpassword")
     assert manager2._vault_data is not None
-    assert manager2._vault_data.get("kdf") == "pbkdf2-sha256"
-    assert manager2._vault_data.get("kdf_params") == {"iterations": 100000, "length": 32}
+    assert manager2._vault_data.get("kdf") == "argon2id"
+    assert manager2._vault_data.get("kdf_params")["time_cost"] == 2
+    assert manager2._vault_data.get("kdf_params")["hash_len"] == 32
 
 
-def test_setup_defaults_to_legacy_version(tmp_path) -> None:
-    """create_empty_vault uses LEGACY_VERSION '1.0' for now."""
-    from openadmindesk.core.vault_format import VaultFormat
-    vault = VaultFormat.create_empty_vault()
+def test_create_empty_v1_explicitly() -> None:
+    """create_empty_vault can explicitly create v1 vault."""
+    from openadmindesk.core.vault_format import VaultFormat, LEGACY_VERSION
+    vault = VaultFormat.create_empty_vault(version=LEGACY_VERSION)
     assert vault["version"] == "1.0"
 
 
 def test_detect_version_from_manager_vault(tmp_path) -> None:
-    """VaultManager setup creates vault detectable as v1."""
+    """VaultManager setup creates vault detectable as v2."""
     vault_path = tmp_path / "vault.json"
     manager = VaultManager(str(vault_path))
     assert manager.setup_master_password("testpassword")
@@ -853,7 +884,7 @@ def test_detect_version_from_manager_vault(tmp_path) -> None:
         data = json.load(f)
 
     from openadmindesk.core.vault_format import detect_version
-    assert detect_version(data) == 1
+    assert detect_version(data) == 2
 
 
 def test_kdf_params_absent_uses_defaults(tmp_path) -> None:
@@ -1005,3 +1036,469 @@ def test_save_vault_failure_restores_updated_at(tmp_path, monkeypatch) -> None:
     assert manager.add_account(another)
     mode = stat.S_IMODE(os.stat(vault_path).st_mode)
     assert mode == 0o600
+
+# ---- Phase 9.9b v2-specific tests ----
+
+def _make_v2_vault_file(path, password, salt_hex=None, kdf_params_override=None,
+                        password_hash_override=None):
+    """Write a valid v2 vault file for a given password.
+
+    Returns (salt_hex, kdf_params, password_hash) used.
+    """
+    if salt_hex is None:
+        salt_hex = secrets.token_hex(16)
+    salt = bytes.fromhex(salt_hex)
+
+    kdf_params = {
+        "time_cost": 2,
+        "memory_cost": 19456,
+        "parallelism": 1,
+        "hash_len": 32,
+        "version": argon2.low_level.ARGON2_VERSION,
+    }
+    if kdf_params_override is not None:
+        kdf_params.update(kdf_params_override)
+
+    if password_hash_override is not None:
+        password_hash = password_hash_override
+    else:
+        key = argon2.low_level.hash_secret_raw(
+            secret=password.encode("utf-8"),
+            salt=salt,
+            time_cost=kdf_params["time_cost"],
+            memory_cost=kdf_params["memory_cost"],
+            parallelism=kdf_params["parallelism"],
+            hash_len=kdf_params["hash_len"],
+            type=Argon2Type.ID,
+            version=kdf_params["version"],
+        )
+        context = b"openadmindesk-vault-v2-verifier"
+        password_hash = hmac.new(key, context, hashlib.sha256).hexdigest()
+
+    data = {
+        "version": 2,
+        "salt": salt_hex,
+        "kdf": "argon2id",
+        "kdf_params": kdf_params,
+        "password_hash": password_hash,
+        "accounts": [],
+        "created_at": "2026-07-15T12:00:00Z",
+        "updated_at": "2026-07-15T12:00:00Z",
+    }
+    with open(path, "w") as f:
+        json.dump(data, f)
+    return salt_hex, kdf_params, password_hash
+
+def test_v2_password_hash_tamper_rejected(tmp_path) -> None:
+    """V2 vault with tampered password_hash is rejected by unlock."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(vault_path, password="correctpassword")
+
+    manager = VaultManager(str(vault_path))
+    assert manager.unlock("correctpassword")
+
+    # Tamper with password_hash
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["password_hash"] = "0" * 64
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    # Fresh manager should fail to unlock
+    manager2 = VaultManager(str(vault_path))
+    assert not manager2.unlock("correctpassword")
+    assert not manager2.is_unlocked()
+
+
+def test_v2_salt_tamper_rejected(tmp_path) -> None:
+    """V2 vault with tampered salt is rejected by unlock."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(vault_path, password="correctpassword")
+
+    manager = VaultManager(str(vault_path))
+    assert manager.unlock("correctpassword")
+
+    # Tamper with salt
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["salt"] = "f" * 32
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    # Fresh manager should fail to unlock
+    manager2 = VaultManager(str(vault_path))
+    assert not manager2.unlock("correctpassword")
+
+def test_v2_empty_salt_rejected(tmp_path) -> None:
+    """V2 vault with empty salt string is rejected by unlock."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(vault_path, password="testpassword", salt_hex="f" * 32)
+
+    # Mutate salt to empty string
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["salt"] = ""
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    manager = VaultManager(str(vault_path))
+    assert not manager.unlock("testpassword")
+
+
+def test_v2_empty_password_hash_rejected(tmp_path) -> None:
+    """V2 vault with empty password_hash string is rejected by unlock."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(str(vault_path), "pwd", salt_hex="e" * 32)
+
+    # Mutate password_hash to empty string
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["password_hash"] = ""
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    manager = VaultManager(str(vault_path))
+    assert not manager.unlock("pwd")
+
+
+def test_v2_params_missing_key_rejected_before_derive(tmp_path, monkeypatch) -> None:
+    """V2 vault with missing kdf_params key is rejected before key derivation."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(vault_path, password="testpassword")
+
+    # Remove a required kdf_params key
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["kdf_params"].pop("time_cost")
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    manager = VaultManager(str(vault_path))
+    called = [False]
+    original = manager._derive_key_v2
+
+    def spy_derive(*args, **kwargs):
+        called[0] = True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_derive_key_v2", spy_derive)
+
+    assert not manager.unlock("testpassword")
+    assert not called[0]
+
+
+def test_v2_params_bool_rejected_before_derive(tmp_path, monkeypatch) -> None:
+    """V2 vault with boolean kdf_params value is rejected before key derivation."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(vault_path, password="testpassword")
+
+    # Mutate a kdf_params value to boolean
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["kdf_params"]["time_cost"] = True
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    manager = VaultManager(str(vault_path))
+    called = [False]
+    original = manager._derive_key_v2
+
+    def spy_derive(*args, **kwargs):
+        called[0] = True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_derive_key_v2", spy_derive)
+
+    assert not manager.unlock("testpassword")
+    assert not called[0]
+
+
+def test_v2_params_out_of_range_rejected_before_derive(tmp_path, monkeypatch) -> None:
+    """V2 vault with out-of-range kdf_params value is rejected before key derivation."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(vault_path, password="testpassword")
+
+    # Mutate memory_cost to out-of-range value
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["kdf_params"]["memory_cost"] = 1
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    manager = VaultManager(str(vault_path))
+    called = [False]
+    original = manager._derive_key_v2
+
+    def spy_derive(*args, **kwargs):
+        called[0] = True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_derive_key_v2", spy_derive)
+
+    assert not manager.unlock("testpassword")
+    assert not called[0]
+
+
+def test_v2_params_wrong_version_rejected_before_derive(tmp_path, monkeypatch) -> None:
+    """V2 vault with wrong kdf_params version is rejected before key derivation."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(vault_path, password="testpassword")
+
+    # Mutate version to invalid value
+    with open(vault_path) as f:
+        data = json.load(f)
+    data["kdf_params"]["version"] = 99
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    manager = VaultManager(str(vault_path))
+    called = [False]
+    original = manager._derive_key_v2
+
+    def spy_derive(*args, **kwargs):
+        called[0] = True
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "_derive_key_v2", spy_derive)
+
+    assert not manager.unlock("testpassword")
+    assert not called[0]
+
+
+def test_v2_argon2_error_returns_false(tmp_path, monkeypatch) -> None:
+    """Argon2 exception during unlock returns False (fail closed)."""
+    vault_path = tmp_path / "vault.json"
+    _make_v2_vault_file(str(vault_path), "testpassword")
+
+    original_hash = argon2.low_level.hash_secret_raw
+
+    def failing_hash(*a, **kw):
+        raise argon2.exceptions.Argon2Error("simulated failure")
+
+    monkeypatch.setattr(argon2.low_level, "hash_secret_raw", failing_hash)
+
+    manager = VaultManager(str(vault_path))
+    assert not manager.unlock("testpassword")
+    assert not manager.is_unlocked()
+
+    monkeypatch.setattr(argon2.low_level, "hash_secret_raw", original_hash)
+
+
+def test_v2_setup_save_failure_restores_state(tmp_path, monkeypatch):
+    """V2 setup with _save_vault failure restores prior _master_key/_vault_data."""
+    vault_path = tmp_path / "vault.json"
+    manager = VaultManager(str(vault_path))
+
+    # First setup succeeds
+    assert manager.setup_master_password("firstpw")
+
+    # Patch _save_vault to fail
+    monkeypatch.setattr(manager, "_save_vault", lambda: False)
+
+    # Second setup should fail and restore state
+    assert not manager.setup_master_password("secondpw")
+
+    # State should be restored to prior values
+    assert manager._master_key is not None
+    assert manager._vault_data is not None
+    assert manager._vault_data.get("kdf") == "argon2id"
+
+    # Fresh manager should still accept firstpw
+    manager2 = VaultManager(str(vault_path))
+    assert not manager2.unlock("secondpw")
+    assert manager2.unlock("firstpw")
+
+
+def test_v2_setup_argon2_error_restores_state(tmp_path, monkeypatch):
+    """V2 setup with Argon2Error during hash restores prior _master_key/_vault_data."""
+    vault_path = tmp_path / "vault.json"
+    manager = VaultManager(str(vault_path))
+
+    # First setup succeeds
+    assert manager.setup_master_password("firstpw")
+
+    # Capture original hash function
+    original_hash = argon2.low_level.hash_secret_raw
+
+    # Make hash_secret_raw raise Argon2Error
+    def failing_hash(*args, **kwargs):
+        raise argon2.exceptions.Argon2Error("simulated failure")
+
+    monkeypatch.setattr(argon2.low_level, "hash_secret_raw", failing_hash)
+
+    # Second setup should fail and restore state
+    assert not manager.setup_master_password("secondpw")
+
+    # State should be restored to prior values
+    assert manager._master_key is not None
+    assert manager._vault_data is not None
+
+    # Restore original function
+    monkeypatch.setattr(argon2.low_level, "hash_secret_raw", original_hash)
+
+    # Fresh manager should still accept firstpw
+    manager2 = VaultManager(str(vault_path))
+    assert manager2.unlock("firstpw")
+
+
+def test_v2_setup_never_leaves_stale_state(tmp_path):
+    """V2 setup with corrupt vault file leaves _master_key/_vault_data as None."""
+    vault_path = tmp_path / "vault.json"
+    manager = VaultManager(str(vault_path))
+
+    # Setup succeeds
+    assert manager.setup_master_password("goodpw")
+
+    # Corrupt the vault file
+    with open(vault_path, "w") as f:
+        f.write("corrupt")
+
+    # Fresh manager should fail to unlock and leave state clean
+    manager2 = VaultManager(str(vault_path))
+    assert not manager2.unlock("goodpw")
+    assert not manager2.is_unlocked()
+    assert manager2._master_key is None
+    assert manager2._vault_data is None
+
+
+def test_hmac_verifier_deterministic():
+    """HMAC verifier produces deterministic output for same key."""
+    key1 = b"\x00" * 32
+    key2 = b"\x01" * 32
+
+    # Create verifiers
+    v1a = VaultManager._compute_v2_verifier(key1)
+    v1b = VaultManager._compute_v2_verifier(key1)
+    v2 = VaultManager._compute_v2_verifier(key2)
+
+    # All verifiers should be 64-character hex strings
+    assert len(v1a) == 64
+    assert len(v1b) == 64
+    assert len(v2) == 64
+
+    # Same key produces same verifier
+    assert v1a == v1b
+
+    # Different keys produce different verifiers
+    assert v1a != v2
+
+    # Verify they are valid hex strings
+    assert int(v1a, 16)
+    assert int(v2, 16)
+
+
+def test_v1_old_vault_still_unlocks_and_writable(tmp_path):
+    """Legacy v1 vault still unlocks and allows account writes."""
+    salt_hex = "f1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+
+    # Create v1 vault data
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.backends import default_backend
+
+    salt = bytes.fromhex(salt_hex)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+        backend=default_backend()
+    )
+    key = kdf.derive(b"v1password")
+    key_hash = hashlib.sha256(key).hexdigest()[:16]
+
+    vault_path = tmp_path / "vault.json"
+    data = {
+        "version": "1.0",
+        "salt": salt_hex,
+        "key_hash": key_hash,
+        "accounts": []
+    }
+    with open(vault_path, "w") as f:
+        json.dump(data, f)
+
+    # Unlock v1 vault
+    manager = VaultManager(str(vault_path))
+    assert manager.unlock("v1password")
+
+    # Add account
+    account = Account(
+        id="v1_write",
+        name="V1 Write",
+        username="u",
+        password="secret",
+        host="localhost",
+        port=22
+    )
+    assert manager.add_account(account)
+
+    # Retrieve account
+    retrieved = manager.get_account("v1_write")
+    assert retrieved is not None
+    assert retrieved.password == "secret"
+
+    manager.lock()
+    reloaded = VaultManager(str(vault_path))
+    assert reloaded.unlock("v1password")
+    reloaded_account = reloaded.get_account("v1_write")
+    assert reloaded_account is not None
+    assert reloaded_account.password == "secret"
+
+
+def test_v2_account_round_trip_survives_fresh_manager(tmp_path) -> None:
+    vault_path = tmp_path / "vault.json"
+    master_password = "master123"
+    manager = VaultManager(str(vault_path))
+    assert manager.setup_master_password(master_password)
+    assert manager.unlock(master_password)
+
+    account = Account(
+        id="test-acc",
+        name="Test Account",
+        username="user",
+        password="secret123",
+        private_key="-----BEGIN TEST PRIVATE KEY-----\nkey-data",
+        private_key_passphrase="keyphrase123",
+        host="example.com",
+        port=22,
+        service_type="ssh",
+    )
+    assert manager.add_account(account)
+
+    vault_text = vault_path.read_text(encoding="utf-8")
+    assert "secret123" not in vault_text
+    assert "keyphrase123" not in vault_text
+    assert "-----BEGIN TEST PRIVATE KEY-----" not in vault_text
+
+    manager.lock()
+    reloaded = VaultManager(str(vault_path))
+    assert reloaded.unlock(master_password)
+    reloaded_account = reloaded.get_account("test-acc")
+    assert reloaded_account is not None
+    assert reloaded_account.password == "secret123"
+    assert reloaded_account.private_key == "-----BEGIN TEST PRIVATE KEY-----\nkey-data"
+    assert reloaded_account.private_key_passphrase == "keyphrase123"
+
+
+def test_v2_argon2_failure_does_not_log_master_password(
+    tmp_path, caplog, monkeypatch
+) -> None:
+    vault_path = tmp_path / "vault.json"
+    setup_manager = VaultManager(str(vault_path))
+    assert setup_manager.setup_master_password("setup-password")
+    attempted_password = "testpassword123"
+
+    def failing_hash(*args, **kwargs):
+        raise argon2.exceptions.Argon2Error(
+            f"simulated failure for {attempted_password}"
+        )
+
+    monkeypatch.setattr(argon2.low_level, "hash_secret_raw", failing_hash)
+    manager = VaultManager(str(vault_path))
+    with caplog.at_level(
+        logging.ERROR, logger="openadmindesk.core.vault_manager"
+    ):
+        result = manager.unlock(attempted_password)
+
+    assert result is False
+    assert attempted_password not in caplog.text
