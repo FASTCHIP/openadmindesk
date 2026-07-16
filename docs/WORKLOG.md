@@ -2842,3 +2842,63 @@ This entry covers the final verification of the packaging/release process and cl
 **Remaining risk**: checks are build/extract/CLI smoke on current Linux build server; full interactive Qt GUI launch of installed packages and native Fedora/RHEL host install were not performed in this pass.
 
 **Note**: no commit/push performed in this docs pass (previous checkpoint a48f947 already published separately).
+
+---
+
+## 2026-07-16 (Stale project cleanup plan)
+
+### Plan
+
+This entry marks the start of the cleanup of stale artifacts and one-off files:
+
+1.  **Delete stale one-off artifacts**:
+    - `demo_split_workspace.py`
+    - `IMPLEMENTATION_SUMMARY.md`
+    - `docs/MOBAXTERM_NEXT_STEPS_2026-07-11.md`
+2.  **Update `docs/ROADMAP.md`**: Remove stale references.
+3.  **Clean ignored/generated paths**:
+    - `build/`
+    - `dist/`
+    - `__pycache__/`
+    - `src/openadmindesk/**/__pycache__/`
+    - `tests/__pycache__/`
+    - `tools/__pycache__/`
+    - `.pytest_cache/`
+    - `.ruff_cache/`
+    - `src/openadmindesk.egg-info/`
+4.  **Protect critical paths**:
+    - `.cleanup_backup/`
+    - `data/`
+    - `opencode.json`
+    - `.superpowers/`
+    - `docs/superpowers/`
+    - `src/`
+    - `tests/`
+    - `docs/SECURITY_MODEL.md`
+    - `docs/VAULT_SPEC.md`
+    - and other maintained package/security docs
+5.  **Safety constraints**:
+    - No `git clean` (wildcard cleanup)
+    - No `reset/restore`
+    - No `commit/push` until review/verification
+6.  **Acceptance criteria**:
+    - No broken references or imports
+    - `git diff` only contains approved tracked paths
+    - Targeted documentation/reference checks
+    - Relevant lint/test verification if needed
+
+---
+
+## 2026-07-16 (Stale project cleanup result)
+
+- tracked removed: `demo_split_workspace.py`, `IMPLEMENTATION_SUMMARY.md`, `docs/MOBAXTERM_NEXT_STEPS_2026-07-11.md`;
+- generated removed: `build/`, `dist/`, root `__pycache__/`, `src/openadmindesk/**/__pycache__/`, `tests/__pycache__/`, `tools/__pycache__/`, `.pytest_cache/`, `.ruff_cache/`, `src/openadmindesk.egg-info/`;
+- protected retained: `.cleanup_backup/`, `data/profiles.db`, `opencode.json`, `.superpowers/`, `docs/superpowers/`, `src/`, `tests/`, maintained security/package docs;
+- historical WORKLOG mentions of removed files are intentionally retained as audit history;
+- Verification:
+  - `ruff check --no-cache src tools tests` — exit 0, all checks passed;
+  - reference search — exit 0, matches only historical/plan/result entries in docs/WORKLOG.md; no live references and no MOBAXTERM_DELETED.md;
+  - `git diff --check` — exit 0, no output;
+  - `git status --short` — exit 0, exactly five approved tracked paths.
+- no pytest because no src/tests code changed;
+- no commit/push performed in cleanup implementation pass.

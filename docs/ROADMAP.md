@@ -91,5 +91,4 @@ for future feature work.
 
 ## MobaXterm-Class UX Gap Plan
 
-Use `docs/MOBAXTERM_GAP_PLAN.md` as the next product-quality roadmap after stabilization. The first implementation sprint should prioritize: activity rail/sidebar, SFTP attached-sidebar mode with transfer queue, Session Wizard icon grid, split workspace controls, MultiExec safety UI, and global settings skeleton.
-- `docs/MOBAXTERM_NEXT_STEPS_2026-07-11.md` tracks the next product-quality implementation plan after the first MobaXterm gap-plan slices.
+Use `docs/MOBAXTERM_GAP_PLAN.md` as the next product-quality roadmap after stabilization. The first implementation sprint slices (activity rail/sidebar, attached SFTP/queue, Session Wizard grid/advanced, split workspace, MultiExec, settings skeleton) are already implemented/tested and reflected in `docs/FEATURE_MATRIX.md`.
