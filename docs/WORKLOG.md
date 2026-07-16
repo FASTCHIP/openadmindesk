@@ -2804,3 +2804,26 @@ No commit or push performed.
 - Review: SftpBackend PASS, ProfileStore PASS, VaultManager PASS; no blocking findings;
 - Remaining risks: no full suite run in this pass; benign concurrent close/submission race remains LOW; ProfileStore redundant else-return LOW; no UI behavior changed;
 - `No commit or push performed.`
+
+---
+
+## 2026-07-16 (Phase 9.11: Packaging/release clean-env verification and demo E402 hygiene)
+
+### Plan
+
+This entry covers the final verification of the packaging/release process and cleanup of the demo script:
+
+1.  **Fix `demo_split_workspace.py`**: Update for clean E402/ruff compliance without altering the demonstration behavior.
+2.  **Clean-environment packaging/release verification**: Perform verification in a clean environment without tracked changes or destructive workspace cleaning.
+3.  **Final Documentation Update**: Update `WORKLOG` and `AUDIT_REMEDIATION_PLAN` only after actual results are obtained.
+
+### Mandatory Criteria
+
+- **Demo**: `py_compile` and `ruff` check must pass.
+- **Package Verification**:
+    - Input check.
+    - Verify `wheel` and `sdist` generation.
+    - Verify `AppImage`, `deb`, and `rpm` (where tools are available).
+    - Smoke test: check `--version` and metadata for extracted/runnable packages.
+- **Git Hygiene**: `git status` must not show unexpected tracked files.
+- **Note**: `commit` and `push` operations are not performed in this pass.
