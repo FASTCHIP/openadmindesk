@@ -133,6 +133,13 @@ Encryption/decryption round-trips through `Account` dataclass:
 Atomic explicit upgrade. Never automatic on startup. Transaction with backup,
 verified replacement, and rollback:
 
+The upgrade process is exposed through two user-facing interfaces:
+1. `Vault → Upgrade Vault Security…` menu action in the Qt UI
+2. `openadmindesk-vault-upgrade` CLI tool
+
+Both interfaces use the same core API function `upgrade_vault_v1_to_v2(path, master_password)`.
+
+The upgrade process:
 1. Load/validate v1 source; hash source bytes.
 2. Unlock v1, decrypt all accounts, verify IDs.
 3. Create same-directory raw-`0o600` fsynced backup; verify hash.
@@ -154,8 +161,30 @@ verified replacement, and rollback:
 Errors carry `VaultUpgradeError` with secret-safe metadata:
 `rollback_succeeded`, `recovery_backup_path`, `source_sha256`, `backup_sha256`.
 
-**No UI or CLI upgrade flow** (Phase 9.9d). Caller must ensure no concurrent
-writer.
+## Vault Upgrade Probe and Flow
+
+The vault upgrade process can be probed with a read-only function:
+
+`inspect_vault_version(path: Path) -> int`
+
+This function returns the vault version (1 or 2) without unlocking or modifying the vault.
+It can be used to determine if an upgrade is needed.
+
+The Qt UI upgrade action:
+- Shows a warning dialog before proceeding
+- Requires explicit confirmation of the upgrade
+- Prompts for password via secure input dialog
+- Does not display secrets in UI messages
+- Locks the vault before upgrade to prevent concurrent access
+
+The `openadmindesk-vault-upgrade` CLI tool:
+- Does not accept passwords via command-line arguments
+- Uses environment variables or TTY prompts for password input
+- Does not display secrets in output
+- Requires `--confirm-upgrade` flag to proceed with upgrade
+- Provides JSON output for scripting consumers with hash metadata but no secrets
+- Vault remains locked after upgrade
+- Caller must acknowledge exclusive writer access
 
 ## UI Rules
 

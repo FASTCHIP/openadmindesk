@@ -37,8 +37,11 @@ class SftpBackend:
     
     async def _run_blocking(self, func, *args, **kwargs):
         """Run a blocking operation in the thread pool."""
+        executor = self._executor
+        if executor is None:
+            raise RuntimeError("SftpBackend executor already closed")
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
+        return await loop.run_in_executor(executor, lambda: func(*args, **kwargs))
     
     def _connect_sync(self, host: str, port: int = 22, username: str = "",
                         password: Optional[str] = None, private_key_path: Optional[str] = None) -> bool:
@@ -298,6 +301,7 @@ class SftpBackend:
         """Shutdown the thread pool executor and disconnect."""
         if self._connected:
             self._disconnect_sync()
-        if self._executor:
-            self._executor.shutdown(wait=False)
+        executor = self._executor
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
             self._executor = None

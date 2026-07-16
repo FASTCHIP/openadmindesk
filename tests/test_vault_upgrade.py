@@ -21,6 +21,7 @@ from openadmindesk.core.vault_manager import VaultManager
 from openadmindesk.core.vault_upgrade import (
     VaultUpgradeError,
     VaultUpgradeResult,
+    inspect_vault_version,
     upgrade_vault_v1_to_v2,
     _BackupInfo,
     _account_map,
@@ -1030,6 +1031,75 @@ class TestUpgradeVaultV1ToV2Failures:
 
         # Cleanup.
         retained_backup.unlink()
+
+
+class TestInspectVaultVersion:
+    def test_inspect_v1_returns_1(self, tmp_path: Path) -> None:
+        vault_file = tmp_path / "vault.json"
+        _write_v1_vault(vault_file, "test_password")
+        assert inspect_vault_version(vault_file) == 1
+
+    def test_inspect_v2_returns_2(self, tmp_path: Path) -> None:
+        vault_file = tmp_path / "vault.json"
+        from openadmindesk.core.vault_manager import VaultManager
+        vm = VaultManager(str(vault_file))
+        try:
+            assert vm.setup_master_password("test_password")
+        finally:
+            vm.close()
+        assert inspect_vault_version(vault_file) == 2
+
+    @pytest.mark.parametrize("case", ["missing", "directory", "symlink", "fifo"])
+    def test_inspect_rejects_non_regular_paths(self, tmp_path: Path, case: str) -> None:
+        if case == "missing":
+            path = tmp_path / "missing.json"
+        elif case == "directory":
+            path = tmp_path
+        elif case == "symlink":
+            (tmp_path / "symlink.json").symlink_to("/nonexistent/file.json")
+            path = tmp_path / "symlink.json"
+        elif case == "fifo":
+            fifo = tmp_path / "fifo"
+            os.mkfifo(str(fifo))
+            path = fifo
+        with pytest.raises(VaultUpgradeError):
+            inspect_vault_version(path)
+
+    def test_inspect_rejects_malformed_json(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.json"
+        path.write_text("{ invalid json }", encoding="utf-8")
+        with pytest.raises(VaultUpgradeError):
+            inspect_vault_version(path)
+
+    def test_inspect_rejects_non_object(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.json"
+        path.write_text("[]", encoding="utf-8")
+        with pytest.raises(VaultUpgradeError):
+            inspect_vault_version(path)
+
+    def test_inspect_rejects_unknown_version(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.json"
+        path.write_text(json.dumps({"version": 99}), encoding="utf-8")
+        with pytest.raises(VaultUpgradeError):
+            inspect_vault_version(path)
+
+    def test_inspect_rejects_structurally_invalid_v1(self, tmp_path: Path) -> None:
+        path = tmp_path / "vault.json"
+        path.write_text(json.dumps({"version": "1.0", "salt": "a" * 32}), encoding="utf-8")
+        with pytest.raises(VaultUpgradeError):
+            inspect_vault_version(path)
+
+    def test_inspect_does_not_modify_file(self, tmp_path: Path) -> None:
+        vault_file = tmp_path / "vault.json"
+        _write_v1_vault(vault_file, "test_password")
+        original_bytes = vault_file.read_bytes()
+        original_mtime = vault_file.stat().st_mtime_ns
+        original_mode = stat.S_IMODE(vault_file.stat().st_mode)
+        result = inspect_vault_version(vault_file)
+        assert result == 1
+        assert vault_file.read_bytes() == original_bytes
+        assert vault_file.stat().st_mtime_ns == original_mtime
+        assert stat.S_IMODE(vault_file.stat().st_mode) == original_mode
 
 
 class TestUpgradeVaultV1ToV2RollbackAndCleanup:

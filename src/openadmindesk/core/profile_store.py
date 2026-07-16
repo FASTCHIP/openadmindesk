@@ -142,7 +142,10 @@ class ProfileStore:
     async def _run_db(self, func, *args, **kwargs):
         """Run a database operation in the thread pool."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
+        executor = self._executor
+        if executor is None:
+            raise RuntimeError("ProfileStore executor already closed")
+        return await loop.run_in_executor(executor, lambda: func(*args, **kwargs))
 
     def _validate_profile_secrets(self, profile: Profile) -> tuple[bool, Optional[str]]:
         """Validate profile secrets before saving to database.
@@ -515,9 +518,12 @@ class ProfileStore:
 
     def close(self) -> None:
         """Shutdown the thread pool executor."""
-        if self._executor:
-            self._executor.shutdown(wait=False)
+        executor = self._executor
+        if executor is not None:
             self._executor = None
+            executor.shutdown(wait=False, cancel_futures=True)
+        else:
+            return
 
     # ── Folder operations ─────────────────────────────────────────────────
 

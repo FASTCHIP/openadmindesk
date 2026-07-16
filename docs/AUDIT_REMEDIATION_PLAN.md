@@ -258,8 +258,10 @@ Goal: Implement additional security measures after the initial publication.
 - [x] 9.9a Version-aware v1 format/KDF metadata (LEGACY_VERSION, detect_version, hex shape validation, fail-closed unlock, PBKDF metadata/timestamps, constant-time key_hash, updated_at save-rollback).
 - [x] 9.9b Argon2id v2 new vaults + v1 unlock.
 - [x] 9.9c Explicit v1→v2 re-encryption backup/verified rollback (core API, no UI/CLI).
-- [ ] 9.9d Optional UI/CLI upgrade flow.
-- [ ] 9.10 Telnet cleartext warning; tunnel logging; executor lifecycle as separate sub-bullets.
+- [x] 9.9d Optional UI/CLI upgrade flow. Read-only probe `inspect_vault_version()` and explicit Qt/CLI flow with `openadmindesk-vault-upgrade` tool. References to audit-hardening tasks without commit hash.
+- [x] 9.10a Telnet cleartext warning; tunnel logging; executor lifecycle as separate sub-bullets.
+- [x] 9.10b tunnel logging
+- [x] 9.10c Executor lifecycle: idempotent close, pending-future cancellation, and predictable post-close async rejection for SFTP, ProfileStore, and VaultManager.
 - [ ] 9.11 Packaging/release clean-env verification and demo E402 hygiene.
 
 Verification:

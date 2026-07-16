@@ -717,6 +717,46 @@ def _restore_v1_backup(backup_path: Path, target_path: Path) -> bool:
                     temp_path.unlink()
 
 
+def inspect_vault_version(path: Path) -> int:
+    """Read-only probe of vault file format version.
+
+    Returns 1 for v1 ("1.0"), 2 for v2 (integer 2).
+
+    Raises VaultUpgradeError for inaccessible path, non-regular file,
+    invalid UTF-8 JSON, non-dict content, unknown version, or format
+    validation failure. Side-effect-free: does not modify file bytes,
+    mtime, mode, or inode.
+    """
+    try:
+        st = path.lstat()
+    except OSError:
+        raise VaultUpgradeError("Vault file is inaccessible") from None
+
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise VaultUpgradeError("Vault file is not a regular file")
+
+    try:
+        text = path.read_text(encoding="utf-8")
+        data: dict[str, object] = json.loads(text)
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        raise VaultUpgradeError("Vault file is not valid UTF-8 JSON") from None
+
+    if not isinstance(data, dict):
+        raise VaultUpgradeError("Vault file is not a valid JSON object")
+
+    version = detect_version(data)
+    if version == 1:
+        if not VaultFormat.validate_vault_format(data):
+            raise VaultUpgradeError("Vault file format is invalid")
+        return 1
+    if version == 2:
+        if not VaultFormat.validate_vault_format(data):
+            raise VaultUpgradeError("Vault file format is invalid")
+        return 2
+
+    raise VaultUpgradeError("Vault file version is unsupported")
+
+
 def upgrade_vault_v1_to_v2(
     path: Path,
     master_password: str,

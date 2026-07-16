@@ -12,6 +12,7 @@ try:
 except ImportError:
     from PySide6.QtWidgets import QAction  # PySide6 < 6.11
 from PySide6.QtCore import Qt, QTimer
+from pathlib import Path
 
 from openadmindesk.ui.activity_rail import ActivityRail
 from openadmindesk.ui.connection_tree import ConnectionTree
@@ -30,6 +31,11 @@ from openadmindesk.core.vault_manager import VaultManager
 from openadmindesk.core.sync_manager import SyncManager
 from openadmindesk.platform.platform_utils import default_db_path, default_vault_path, is_portable
 from openadmindesk.core.l10n import _
+from openadmindesk.core.vault_upgrade import (
+    inspect_vault_version,
+    upgrade_vault_v1_to_v2,
+    VaultUpgradeError,
+)
 
 from typing import Optional
 import copy
@@ -48,12 +54,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(_("OpenAdminDesk"))
         if is_portable():
             self.setWindowTitle(_("OpenAdminDesk") + " [PORTABLE]")
-        
+
         # Core services (platform-appropriate paths)
         self.profile_store = ProfileStore(default_db_path())
         self.vault_manager = VaultManager(default_vault_path())
         self.sync_manager = SyncManager(self.profile_store, self.vault_manager)
-        
+
         # Settings
         self._settings_store = SettingsStore()
         self._app_settings = self._settings_store.load()
@@ -61,13 +67,13 @@ class MainWindow(QMainWindow):
             self._app_settings.window_width,
             self._app_settings.window_height,
         )
-        
+
         # Broadcast mode
         self.broadcast_mode = False
-        
+
         # Workspace layout
         self.workspace_layout = "single"
-        
+
         # Build UI
         self._setup_central_widget()
         self._setup_quick_connect_toolbar()
@@ -75,7 +81,7 @@ class MainWindow(QMainWindow):
         self._setup_status_bar()
         self._setup_menu_bar()
         self._connect_signals()
-        
+
         # Load profiles into tree
         self.connection_tree.refresh()
 
@@ -128,7 +134,7 @@ class MainWindow(QMainWindow):
             ws.currentChanged.connect(
                 lambda i: self._update_status_bar_sessions()
             )
-        
+
         # Activity rail mode changes
         self.activity_rail.mode_changed.connect(self._on_activity_mode_changed)
 
@@ -136,25 +142,25 @@ class MainWindow(QMainWindow):
         """Setup the main content area with activity rail and workspace."""
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
+
         # Main layout with activity rail and workspace
         main_layout = QHBoxLayout(central_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        
+
         # Connection tree (will be set as sessions widget)
         self.connection_tree = ConnectionTree(self.profile_store)
-        
+
         # Activity rail (left sidebar)
         self.activity_rail = ActivityRail()
-        
+
         # Workspace container (main area) - manages multiple panes
         self.workspace_container = WorkspaceContainer()
         self.workspace_container.set_new_session_callback(self._on_new_session_requested)
-        
+
         # Set up sessions widget in activity rail
         self.activity_rail.set_sessions_widget(self.connection_tree)
-        
+
         main_layout.addWidget(self.activity_rail)
         main_layout.addWidget(self.workspace_container)
         main_layout.setStretch(1, 1)  # Let workspace expand
@@ -168,45 +174,45 @@ class MainWindow(QMainWindow):
         """Setup the view toolbar with split workspace controls."""
         self.view_toolbar = QToolBar(_("View"))
         self.view_toolbar.setMovable(False)
-        
+
         # Split layout buttons
         self.split_single_btn = QPushButton(_("1: Single"))
         self.split_single_btn.setCheckable(True)
         self.split_single_btn.setToolTip(_("Single workspace"))
         self.split_single_btn.clicked.connect(lambda: self._set_workspace_layout("single"))
         self.view_toolbar.addWidget(self.split_single_btn)
-        
+
         self.split_horizontal_btn = QPushButton(_("2: Horizontal"))
         self.split_horizontal_btn.setCheckable(True)
         self.split_horizontal_btn.setToolTip(_("Two horizontal workspaces"))
         self.split_horizontal_btn.clicked.connect(lambda: self._set_workspace_layout("horizontal"))
         self.view_toolbar.addWidget(self.split_horizontal_btn)
-        
+
         self.split_vertical_btn = QPushButton(_("2: Vertical"))
         self.split_vertical_btn.setCheckable(True)
         self.split_vertical_btn.setToolTip(_("Two vertical workspaces"))
         self.split_vertical_btn.clicked.connect(lambda: self._set_workspace_layout("vertical"))
         self.view_toolbar.addWidget(self.split_vertical_btn)
-        
+
         self.split_grid_btn = QPushButton(_("4: Grid"))
         self.split_grid_btn.setCheckable(True)
         self.split_grid_btn.setToolTip(_("Four workspace grid"))
         self.split_grid_btn.clicked.connect(lambda: self._set_workspace_layout("grid"))
         self.view_toolbar.addWidget(self.split_grid_btn)
-        
+
         # Set default layout
         self.split_single_btn.setChecked(True)
-        
+
         self.view_toolbar.addSeparator()
-        
+
         self.multi_exec_btn = QPushButton(_("📢 MultiExec"))
         self.multi_exec_btn.setCheckable(True)
         self.multi_exec_btn.setToolTip(_("Show/hide MultiExec panel for broadcast keystrokes"))
         self.multi_exec_btn.clicked.connect(self._toggle_multi_exec_panel)
         self.view_toolbar.addWidget(self.multi_exec_btn)
-        
+
         self.addToolBar(Qt.TopToolBarArea, self.view_toolbar)
-        
+
         # MultiExec panel (dock widget, right side)
         self._multi_exec_panel = MultiExecPanel()
         self._multi_exec_dock = QDockWidget(_("MultiExec"), self)
@@ -215,10 +221,10 @@ class MainWindow(QMainWindow):
         self._multi_exec_dock.setVisible(False)
         self._multi_exec_dock.visibilityChanged.connect(self._on_multi_exec_visibility)
         self.addDockWidget(Qt.RightDockWidgetArea, self._multi_exec_dock)
-        
+
         # Wire MultiExecPanel signals
         self._multi_exec_panel.broadcast_requested.connect(self._on_broadcast_requested)
-        
+
         # Poll for tab changes to refresh the panel
         self._multi_exec_timer = QTimer(self)
         self._multi_exec_timer.timeout.connect(self._refresh_multi_exec_panel)
@@ -329,16 +335,16 @@ class MainWindow(QMainWindow):
     def _set_workspace_layout(self, layout: str) -> None:
         """Set the workspace layout."""
         self.workspace_layout = layout
-        
+
         # Update button states
         self.split_single_btn.setChecked(layout == "single")
         self.split_horizontal_btn.setChecked(layout == "horizontal")
         self.split_vertical_btn.setChecked(layout == "vertical")
         self.split_grid_btn.setChecked(layout == "grid")
-        
+
         # Set the layout in the workspace container
         self.workspace_container.set_layout_mode(layout)
-        
+
         # Show layout change message
         self.connection_event_area.showMessage(f"Layout: {layout}", 3000)
 
@@ -351,10 +357,10 @@ class MainWindow(QMainWindow):
     def _setup_menu_bar(self) -> None:
         """Setup the menu bar with Vault menu."""
         menu_bar = self.menuBar()
-        
+
         # File menu
         file_menu = menu_bar.addMenu(_("&File"))
-        
+
         new_profile_action = QAction(_("New Profile..."), self)
         new_profile_action.triggered.connect(self._new_profile)
         file_menu.addAction(new_profile_action)
@@ -364,7 +370,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(new_local_action)
 
         file_menu.addSeparator()
-        
+
         import_action = QAction(_("Import from MobaXterm..."), self)
         import_action.triggered.connect(self._import_mobaxterm)
         file_menu.addAction(import_action)
@@ -374,90 +380,94 @@ class MainWindow(QMainWindow):
         file_menu.addAction(putty_action)
 
         file_menu.addSeparator()
-        
+
         export_json_action = QAction(_("Export Sessions (JSON)..."), self)
         export_json_action.triggered.connect(self._export_sessions_json)
         file_menu.addAction(export_json_action)
-        
+
         import_json_action = QAction(_("Import Sessions (JSON)..."), self)
         import_json_action.triggered.connect(self._import_sessions_json)
         file_menu.addAction(import_json_action)
-        
+
         file_menu.addSeparator()
-        
+
         exit_action = QAction(_("Exit"), self)
         exit_action.triggered.connect(self.close)
         file_menu.addAction(exit_action)
-        
+
         # Vault menu
         vault_menu = menu_bar.addMenu(_("&Vault"))
-        
+
         self.setup_vault_action = QAction(_("Setup Master Password..."), self)
         self.setup_vault_action.triggered.connect(self._setup_vault)
         vault_menu.addAction(self.setup_vault_action)
-        
+
         self.unlock_vault_action = QAction(_("Unlock Vault..."), self)
         self.unlock_vault_action.triggered.connect(self._unlock_vault)
         vault_menu.addAction(self.unlock_vault_action)
-        
+
         self.lock_vault_action = QAction(_("Lock Vault"), self)
         self.lock_vault_action.triggered.connect(self._lock_vault)
         self.lock_vault_action.setEnabled(False)
         vault_menu.addAction(self.lock_vault_action)
-        
+
+        self.upgrade_vault_action = QAction(_("Upgrade Vault Security…"), self)
+        self.upgrade_vault_action.triggered.connect(self._on_upgrade_vault)
+        vault_menu.addAction(self.upgrade_vault_action)
+
         vault_menu.addSeparator()
-        
+
         manage_accounts_action = QAction(_("Manage Accounts..."), self)
         manage_accounts_action.triggered.connect(self._manage_accounts)
         vault_menu.addAction(manage_accounts_action)
-        
+
         self._update_vault_menu()
-        
+
         # Tools menu
         tools_menu = menu_bar.addMenu(_("&Tools"))
-        
+
         tunnels_action = QAction(_("Tunnels..."), self)
         tunnels_action.triggered.connect(self._show_tunnel_manager)
         tools_menu.addAction(tunnels_action)
-        
+
         tools_menu.addSeparator()
-        
+
         launch_gui_action = QAction(_("Launch Remote GUI App..."), self)
         launch_gui_action.triggered.connect(self._show_gui_launcher)
         tools_menu.addAction(launch_gui_action)
-        
+
         tools_menu.addSeparator()
-        
+
         snippets_action = QAction(_("Manage Snippets..."), self)
         snippets_action.triggered.connect(self._show_snippet_manager)
         tools_menu.addAction(snippets_action)
-        
+
         # Sync menu
         sync_menu = menu_bar.addMenu(_("&Sync"))
-        
+
         self.sync_settings_action = QAction(_("⚙ Sync Settings..."), self)
         self.sync_settings_action.triggered.connect(self._show_sync_settings)
         sync_menu.addAction(self.sync_settings_action)
-        
+
         self.sync_now_action = QAction(_("🔄 Sync Now"), self)
         self.sync_now_action.triggered.connect(self._sync_now)
         self.sync_now_action.setEnabled(self.sync_manager.config.enabled)
         sync_menu.addAction(self.sync_now_action)
-        
+
         sync_menu.addSeparator()
-        
+
         self.sync_push_action = QAction(_("⬆ Push to Cloud"), self)
         self.sync_push_action.triggered.connect(self._sync_push)
         self.sync_push_action.setEnabled(self.sync_manager.config.enabled)
         sync_menu.addAction(self.sync_push_action)
-        
+
         self.sync_pull_action = QAction(_("⬇ Pull from Cloud"), self)
         self.sync_pull_action.triggered.connect(self._sync_pull)
         self.sync_pull_action.setEnabled(self.sync_manager.config.enabled)
         sync_menu.addAction(self.sync_pull_action)
 
         file_menu.addSeparator()
-        
+
         settings_action = QAction(_("⚙ Settings..."), self)
         settings_action.triggered.connect(self._show_settings_dialog)
         file_menu.addAction(settings_action)
@@ -470,6 +480,90 @@ class MainWindow(QMainWindow):
         unlocked = self.vault_manager.is_unlocked()
         self.unlock_vault_action.setEnabled(not unlocked)
         self.lock_vault_action.setEnabled(unlocked)
+
+    def _on_upgrade_vault(self) -> None:
+        """Handle vault upgrade action from menu."""
+        try:
+            ver = inspect_vault_version(Path(self.vault_manager.vault_path))
+        except VaultUpgradeError as e:
+            QMessageBox.critical(self, "Vault Upgrade", f"Could not read vault file:\n{str(e)}")
+            return
+
+        if ver == 2:
+            QMessageBox.information(self, "Vault Upgrade", "Already using v2.")
+            return
+
+        # Show warning dialog for v1 upgrade
+        reply = QMessageBox.warning(
+            self, "Vault Upgrade",
+            "This will upgrade to v2. A backup will be created. Only proceed if no other instance is using this vault.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # Check if vault is unlocked and ask for re-locking
+        if self.vault_manager.is_unlocked():
+            reply = QMessageBox.question(
+                self, "Vault Upgrade",
+                "Vault will be locked before upgrade. You will need to re-enter your master password. Continue?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+            # Lock the vault
+            self.vault_manager.lock()
+            self._last_vault_unlocked = False
+            self._update_vault_menu()
+
+        # Get password
+        password, ok = QInputDialog.getText(
+            self, "Vault Upgrade",
+            "Enter master password:",
+            QLineEdit.Password
+        )
+        if not ok or not password:
+            # If vault was locked, it stays locked
+            return
+
+        # Perform upgrade
+        try:
+            result = upgrade_vault_v1_to_v2(Path(self.vault_manager.vault_path), password)
+        except VaultUpgradeError as e:
+            self._show_upgrade_error(e)
+            return
+
+        # Show result
+        if result.backup_deleted:
+            QMessageBox.information(self, "Vault Upgrade", "Upgraded to v2. Backup removed.")
+        else:
+            QMessageBox.warning(self, "Vault Upgrade", f"Upgraded to v2.\nBackup retained: {result.retained_backup_path}")
+
+    def _show_upgrade_error(self, error: VaultUpgradeError) -> None:
+        """Show appropriate error message for vault upgrade failure."""
+        if error.rollback_succeeded is None:
+            # Critical error: source was not replaced
+            msg = f"{str(error)}\n\nSource was not replaced."
+        elif error.rollback_succeeded is True:
+            # Warning: original v1 restored
+            msg = "Original v1 restored."
+        elif error.rollback_succeeded is False:
+            # Critical error: rollback failed
+            msg = "Rollback failed."
+        else:
+            # Should not happen, but just in case
+            msg = str(error)
+
+        if error.recovery_backup_path:
+            msg += f"\nRecovery: {error.recovery_backup_path}"
+
+        if error.rollback_succeeded is True:
+            QMessageBox.warning(self, "Vault Upgrade", msg)
+        else:
+            QMessageBox.critical(self, "Vault Upgrade", msg)
 
     def _poll_vault_lock_state(self) -> None:
         """Periodic check for vault auto-lock transitions."""
@@ -918,12 +1012,12 @@ class MainWindow(QMainWindow):
         # Parse user@host:port format
         username = ""
         port = 22
-        
+
         if '@' in host:
             parts = host.split('@', 1)
             username = parts[0]
             host = parts[1]
-        
+
         if ':' in host:
             parts = host.split(':', 1)
             host = parts[0]
@@ -969,7 +1063,7 @@ class MainWindow(QMainWindow):
             username=user_input.text().strip() or "root",
             password=pass_input.text() or None,
         )
-        
+
         self._open_ssh_tab(profile)
         self.connection_event_area.showMessage(
             f"Connecting to {profile.username}@{profile.host}:{profile.port}...", 5000
@@ -1010,7 +1104,7 @@ class MainWindow(QMainWindow):
         """Open a session tab for the given profile and auto-connect."""
         profile = self._profile_with_vault_credentials(profile)
         tab_name = f"{profile.icon} {profile.name}"
-        
+
         # Check if session already exists in any workspace
         workspaces = self.workspace_container.get_all_workspaces()
         for ws in workspaces:
@@ -1075,7 +1169,7 @@ class MainWindow(QMainWindow):
         workspaces = self.workspace_container.get_all_workspaces()
         total = 0
         connected = 0
-        
+
         for ws in workspaces:
             total += ws.count()
             from openadmindesk.ui.ssh_terminal_tab import SshTerminalTab
@@ -1083,7 +1177,7 @@ class MainWindow(QMainWindow):
                 w = ws.widget(i)
                 if isinstance(w, SshTerminalTab) and w._connected:
                     connected += 1
-        
+
         self.connection_event_area.update_session_count(connected, total)
 
     def _on_activity_mode_changed(self, mode: str) -> None:
@@ -1096,7 +1190,7 @@ class MainWindow(QMainWindow):
         workspaces = self.workspace_container.get_all_workspaces()
         for ws in workspaces:
             ws.cleanup_detached()
-        
+
         # Close all tabs from all workspaces
         for ws in workspaces:
             while ws.count() > 0:
@@ -1104,7 +1198,12 @@ class MainWindow(QMainWindow):
                 if hasattr(widget, 'close'):
                     widget.close()
                 ws.removeTab(0)
-        
+
+        # Shutdown core services
+        self.profile_store.close()
+        self.vault_manager.close()
+        self.sync_manager.close()
+
         event.accept()
 
 

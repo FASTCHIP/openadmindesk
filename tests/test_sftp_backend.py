@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-import paramiko
+import asyncio
 import stat
+
+import paramiko
+import pytest
 
 from openadmindesk.core import sftp_backend
 from openadmindesk.core.remote_file import FileType
@@ -106,3 +109,53 @@ def test_sftp_stat_attributes_without_filename_are_supported() -> None:
     assert remote.name == "AGENTS.md"
     assert remote.file_type == FileType.FILE
     assert remote.permissions == "644"
+
+
+
+def test_sftp_backend_close_idempotent(monkeypatch) -> None:
+    class FakeExecutor:
+        def __init__(self) -> None:
+            self.shutdown_calls: list[tuple[bool, bool]] = []
+
+        def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
+            self.shutdown_calls.append((wait, cancel_futures))
+
+    fake_executor = FakeExecutor()
+    monkeypatch.setattr(
+        sftp_backend,
+        "ThreadPoolExecutor",
+        lambda *args, **kwargs: fake_executor,
+    )
+
+    backend = SftpBackend()
+    backend.close()
+    backend.close()
+
+    assert backend.is_connected() is False
+    assert fake_executor.shutdown_calls == [(False, True)]
+
+
+def test_sftp_backend_async_rejection_after_close() -> None:
+    backend = SftpBackend()
+    backend.close()
+
+    with pytest.raises(
+        RuntimeError,
+        match="^SftpBackend executor already closed$",
+    ):
+        asyncio.run(backend.list_directory_async("/"))
+
+
+def test_sftp_backend_kwargs_pass_through() -> None:
+    def combine(prefix: str, *, suffix: str) -> str:
+        return f"{prefix}:{suffix}"
+
+    backend = SftpBackend()
+    try:
+        result = asyncio.run(
+            backend._run_blocking(combine, "left", suffix="right")
+        )
+    finally:
+        backend.close()
+
+    assert result == "left:right"

@@ -69,8 +69,11 @@ class VaultManager:
 
     async def _run_blocking(self, func, *args, **kwargs):
         """Run a blocking operation in the thread pool."""
+        executor = self._executor
+        if executor is None:
+            raise RuntimeError("VaultManager executor already closed")
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(self._executor, lambda: func(*args, **kwargs))
+        return await loop.run_in_executor(executor, lambda: func(*args, **kwargs))
 
     def _utc_now_iso(self) -> str:
         """Return current UTC time as ISO 8601 string."""
@@ -784,6 +787,8 @@ class VaultManager:
 
     def close(self) -> None:
         """Shutdown the thread pool executor."""
-        if self._executor:
-            self._executor.shutdown(wait=False)
-            self._executor = None
+        executor = self._executor
+        if executor is None:
+            return
+        self._executor = None
+        executor.shutdown(wait=False, cancel_futures=True)

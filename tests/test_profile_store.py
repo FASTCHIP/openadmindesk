@@ -1,10 +1,63 @@
 """Tests for profile store."""
 
-import tempfile
+import asyncio
 import os
 import sqlite3
+import tempfile
+
+import pytest
+
+from openadmindesk.core import profile_store as profile_store_module
 from openadmindesk.core.profile import Profile, SessionType
 from openadmindesk.core.profile_store import ProfileStore
+
+
+def test_profile_store_executor_shutdown_calls_once(tmp_path, monkeypatch) -> None:
+    class FakeExecutor:
+        def __init__(self) -> None:
+            self.shutdown_calls: list[tuple[bool, bool]] = []
+
+        def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
+            self.shutdown_calls.append((wait, cancel_futures))
+
+    fake_executor = FakeExecutor()
+    monkeypatch.setattr(
+        profile_store_module,
+        "ThreadPoolExecutor",
+        lambda *args, **kwargs: fake_executor,
+    )
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.close()
+    store.close()
+
+    assert fake_executor.shutdown_calls == [(False, True)]
+
+
+def test_profile_store_raises_error_after_close(tmp_path) -> None:
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.close()
+
+    with pytest.raises(
+        RuntimeError,
+        match="^ProfileStore executor already closed$",
+    ):
+        asyncio.run(store.load_all_profiles_async())
+
+
+def test_profile_store_run_db_args_forwarding(tmp_path) -> None:
+    def combine(prefix: str, *, suffix: str) -> str:
+        return f"{prefix}:{suffix}"
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        result = asyncio.run(
+            store._run_db(combine, "left", suffix="right")
+        )
+    finally:
+        store.close()
+
+    assert result == "left:right"
 
 
 def test_profile_store_creation() -> None:

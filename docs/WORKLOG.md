@@ -1179,11 +1179,19 @@ git diff --check clean after deleting blank EOF
 - Monitor GitHub CI for Docker runtime issues
 - Run local Docker smoke test when daemon available
 
-## 2026-07-13 (Implement credential validation and DB handling for Phase 7.1)
+## 2026-07-13 (Implement atomic VaultManager.remove_account rollback and credential validation)
 
 ### Implementation
-This entry implements task 7.1 of Phase 7 from the audit remediation plan:
-- Added module logger to profile_store.py
+
+This entry implements tasks 9.5a of Phase 9 and 7.1 of Phase 7 from the audit remediation plan:
+
+1. **Enhanced `remove_account` method in `src/openadmindesk/core/vault_manager.py`**:
+    - Added snapshot mechanism before account removal (`original_accounts = self._vault_data["accounts"][:]`)
+    - Implemented rollback functionality when save operations fail by restoring the original accounts list
+    - Added proper exception handling that also restores the original state
+    - Maintained all existing behavior while adding atomicity guarantees
+
+2. **Added module logger to profile_store.py**:
 - Implemented validation before DB save:
   - Non-empty password/private_key_passphrase require credential_id
   - Non-empty gateway password requires rdp_gateway_credential_id
@@ -1197,13 +1205,15 @@ This entry implements task 7.1 of Phase 7 from the audit remediation plan:
   - Keep 32-column mapping correct
 
 ### Files Changed
+- `src/openadmindesk/core/vault_manager.py` - Added snapshot and rollback logic
 - `src/openadmindesk/core/profile_store.py` - Added module logger, validation logic, and updated save behavior
+- `tests/test_vault_manager.py` - Added 3 new tests to verify rollback behavior
 - `tests/test_profile_store.py` - Added 5 new behavior tests to verify credential validation and DB handling
 
 ### Verification
-- `python3 -m py_compile src/openadmindesk/core/profile_store.py` - passed
+- `python3 -m py_compile src/openadmindesk/core/vault_manager.py src/openadmindesk/core/profile_store.py` - passed
 - `ruff check src tests` - passed
-- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_profile_store.py -q` - 9 passed
+- `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_vault_manager.py tests/test_profile_store.py -q` - 12 + 9 passed
 - `poetry run bandit -r src/ -lll` - passed
 - `poetry run pip-audit` - passed
 - `git diff --check` - clean
@@ -1212,17 +1222,87 @@ This entry implements task 7.1 of Phase 7 from the audit remediation plan:
 - All tests pass with clean verification
 - No vulnerabilities found by pip-audit
 
-## 2026-07-13 (Implement atomic VaultManager.remove_account rollback)
+All checks passed:
+- Python syntax check: ✅
+- pytest tests: 11 passed
+- ruff linting: ✅
+- git diff check: ✅
+
+### Files Changed
+- docs/SECURITY_MODEL.md: Added Tunnel Logging section
+- tests/test_tunnel_manager.py: Enhanced logging tests with sentinel values
+- src/openadmindesk/core/tunnel_manager.py: No changes (already correct)
+
+### Remaining Risk
+Full test suite not run, but all tunnel manager tests pass with no known risks for this specific task.
+
+## 2026-07-16 (Implement Phase 9.10b tunnel logging)
 
 ### Implementation
 
-This entry implements task 9.5a of Phase 9 from the audit remediation plan:
+This entry implements task 9.10b of Phase 9 from the audit remediation plan:
+- Added standard module logger to core tunnel_manager.py
+- Added structured log messages for tunnel lifecycle: start request/success/failure, stop request/success/failure, subprocess completion with exit code, unexpected start/stop exceptions
+- Logs do not contain full argv/command, host, username, private_key_path, captured stderr, exception message/traceback or any credentials/secrets
+- Preserved current behavior of last_error() status: captured stderr is available to calling code but not logged
+- Did not change SSH command building, UI, thread/executor lifecycle, public APIs or unrelated behavior
+- Added behavioral pytest tests via caplog/monkeypatch confirming correct lifecycle logs and absence of sentinel secrets in logs
+- Updated SECURITY_MODEL.md with short description of secret-safe tunnel logging contract
 
-1. **Enhanced `remove_account` method in `src/openadmindesk/core/vault_manager.py`**:
-   - Added snapshot mechanism before account removal (`original_accounts = self._vault_data["accounts"][:]`)
-   - Implemented rollback functionality when save operations fail by restoring the original accounts list
-   - Added proper exception handling that also restores the original state
-   - Maintained all existing behavior while adding atomicity guarantees
+### Verification
+
+First, we need to note that the original worker reached step limit and the pre-edit plan was not committed. This is a corrective pass based on confirmed findings.
+
+#### Commands executed:
+```bash
+python3 -m py_compile src/openadmindesk/core/tunnel_manager.py tests/test_tunnel_manager.py
+python3 -m pytest tests/test_tunnel_manager.py -q
+python3 -m ruff check src/openadmindesk/core/tunnel_manager.py tests/test_tunnel_manager.py
+git diff --check
+```
+
+#### Results:
+- `python3 -m py_compile src/openadmindesk/core/tunnel_manager.py tests/test_tunnel_manager.py` - exit code 0
+- `python3 -m pytest tests/test_tunnel_manager.py -q` - exit code 0
+- `python3 -m ruff check src/openadmindesk/core/tunnel_manager.py tests/test_tunnel_manager.py` - exit code 0
+- `git diff --check` - exit code 0
+
+#### Remaining risks:
+- No known risks identified
+
+## 2026-07-16 (Telnet Cleartext Warning Implementation)
+
+### Plan
+
+This entry implements Phase 9.10 Telnet cleartext warning from the audit remediation plan:
+
+1. **Add warning dialog before Telnet connection attempts**:
+   - Display warning dialog before every Telnet connection attempt
+   - Show warning dialog before reconnecting
+   - Default to "No" behavior (cancel connection)
+   - UI-layer only implementation (TelnetBackend unchanged)
+   - Helper method `_confirm_cleartext_connection()` that returns bool
+   - Separated connection flow to prevent double-prompting on reconnect
+   - Dialog explicitly states credentials and session data are unencrypted
+   - Cancellation of initial connect leaves status/buttons/backend untouched
+   - Yes starts exactly once; reconnect Yes disconnects then starts exactly once
+   - No persisted suppression/settings
+   - Headless Qt tests with new test file in QT_TEST_FILES
+
+### Implementation
+
+1. **Create new test file** `tests/test_telnet_session_tab.py` with comprehensive tests for warning dialog behavior
+2. **Update `tests/conftest.py`** to include new test file in QT_TEST_FILES
+3. **Modify `src/openadmindesk/ui/telnet_session_tab.py`** to implement warning dialog functionality:
+   - Import QMessageBox
+   - Add `_confirm_cleartext_connection()` method to show warning dialog
+   - Extract connection logic into `_start_connection()` method
+   - Modify `_connect()` to confirm before starting connection
+   - Modify `_on_reconnect()` to confirm before reconnecting
+   - Preserve all existing UI state and backend behavior
+4. **Update documentation** in `docs/SECURITY_MODEL.md` to describe the warning behavior
+5. **Split AUDIT_REMEDIATION_PLAN.md** line 262 to mark 9.10a as complete
+6. **Append WORKLOG entry** with implementation details and verification results
    - Returns `True` when account is successfully removed and saved
    - Returns `False` when account ID doesn't exist
    - Returns `False` when save fails (with rollback)
@@ -2634,3 +2714,93 @@ Exactly two untracked code/test files: `vault_upgrade.py` and
 - Exclusive/no-active-writer coordination is caller responsibility.
 
 **No commit or push performed.**
+
+---
+
+## 2026-07-15 (Phase 9.9d vault upgrade UI/CLI design)
+### Design decisions
+- Approved explicit user-triggered UI plus installed standalone CLI; no startup/automatic upgrade.
+- Core adds read-only `inspect_vault_version(path: Path) -> int`; adapters call committed `upgrade_vault_v1_to_v2(path, password)`.
+- UI confirms exclusive writer/relock, remains locked; CLI uses env or TTY getpass, `--confirm-upgrade`, text/JSON, no password argv.
+- Spec: `docs/superpowers/specs/2026-07-15-vault-upgrade-ui-cli-design.md`.
+### Scope and status
+- Documentation-only design; no code/config/tests/audit changed and no tests run.
+- No commit or push performed.
+### Next task
+Write implementation plan, then implement per approved spec.
+
+---
+
+## 2026-07-15 (Phase 9.9d implementation plan corrected)
+### Plan
+- Plan: `docs/superpowers/plans/2026-07-15-vault-upgrade-ui-cli-implementation.md`.
+- 12 tasks: baseline, probe, CLI, UI, entrypoint, review, corrections, re-review, runtime, packaging, docs, final gate.
+- Docs-only planning; no code/config/tests/audit changed and no tests run.
+- No commit performed.
+### Next execution choice
+Subagent-driven: fresh local-worker per Tasks 2-5; reviewer gates thereafter.
+
+---
+
+## 2026-07-16 (Phase 9.9d vault upgrade UI/CLI implementation)
+
+### Implementation
+- Added read-only `inspect_vault_version(Path) -> int`.
+- Added standalone no-Qt `openadmindesk-vault-upgrade` with explicit confirmation, env/TTY password input, text/JSON output, and exit codes 0/1/2; no password argv.
+- Added `Vault → Upgrade Vault Security…`; explicit warning/relock/password flow; vault remains locked; recovery metadata shown without hashes/secrets.
+- Added exact `[project.scripts]` entrypoint and core/CLI/UI tests.
+- Updated `docs/SECURITY_MODEL.md`, `docs/VAULT_SPEC.md`, and audit task 9.9d.
+- Approved spec/plan remain untracked pending manual commit.
+
+### Review corrections
+- Restored baseline main-window tests after an initial worker replacement.
+- Corrected modal mocks, exact `Path`/core patching, recovery paths, menu order, and whitespace.
+- Removed `tests/test_main_window.py.backup` and `tests/test_main_window.py.fixed` only after explicit user authorization.
+
+### Verification
+| Command | Exit | Result |
+|---------|------|--------|
+| Six-file `python3 -m py_compile` | 0 | PASS |
+| `ruff check src tests` | 0 | All checks passed |
+| Probe pytest | 0 | 11 passed |
+| CLI pytest | 0 | 20 passed |
+| UI targeted pytest | 0 | 6 passed |
+| MainWindow pytest | 0 | 23 passed |
+| Full headless pytest | 0 | 564 passed in 18.40s |
+| Bandit core + CLI | 0 | No findings |
+| `git diff --check` | 0 | Clean |
+| Wheel build and entrypoint inspection | 0 | `openadmindesk-0.1.0-py3-none-any.whl`; `openadmindesk-vault-upgrade = openadmindesk.vault_upgrade_cli:main` |
+
+### Review
+Independent reviewer verdict PASS; no confirmed CRITICAL/HIGH/MEDIUM findings. This entry resolves the remaining LOW audit-trail gap.
+
+### Remaining risks
+- No core file lock; caller must ensure exclusive writer access.
+- Environment password may be visible via `/proc/<pid>/environ`; TTY is preferred interactively.
+- Encrypted backup may be retained; same-password-only upgrade; UI call is synchronous.
+
+READY_FOR_MANUAL_COMMIT
+
+No commit or push performed.
+
+
+## 2026-07-16 (Phase 9.10c executor lifecycle plan)
+
+- Separate implementation passes: `SftpBackend`, `ProfileStore`, then `VaultManager`, each with its matching test file.
+- Contract: `close()` is idempotent; new async submissions after close raise predictable `RuntimeError`; pending futures are cancelled where supported; SFTP close preserves disconnect cleanup; unrelated sync/public/UI behavior stays unchanged.
+- Focused checks per pass: `python3 -m py_compile` and `ruff check` for the named pair, plus targeted `pytest` for its test file.
+- Documentation-only pre-edit entry; no tests run; no commit or push performed.
+
+---
+
+## 2026-07-16 (Phase 9.10c executor lifecycle implementation)
+- Implementation: три компонента, local executor capture, exact component-specific RuntimeError after close, idempotent close, shutdown(wait=False, cancel_futures=True), SFTP disconnect preserved, unrelated sync/crypto/SQLite/UI unchanged;
+- Files Changed: шесть implementation/test files плюс эти два docs files;
+- Verification exact table:
+  * combined py_compile six files exit 0;
+  * combined ruff six files exit 0;
+   * exact pytest command `PYTHONDONTWRITEBYTECODE=1 python3 -m pytest tests/test_sftp_backend.py tests/test_profile_store.py tests/test_vault_manager.py -q --tb=short -p no:cacheprovider` exit 0, 83 passed in 3.15s;
+  * scoped git diff --check six files exit 0, empty output;
+- Review: SftpBackend PASS, ProfileStore PASS, VaultManager PASS; no blocking findings;
+- Remaining risks: no full suite run in this pass; benign concurrent close/submission race remains LOW; ProfileStore redundant else-return LOW; no UI behavior changed;
+- `No commit or push performed.`

@@ -1,5 +1,6 @@
 """Tests for vault manager."""
 
+import asyncio
 import tempfile
 import os
 import stat
@@ -9,9 +10,12 @@ import hashlib
 import hmac
 import secrets
 
+import pytest
+
 import argon2.low_level
 from argon2.low_level import Type as Argon2Type
 
+from openadmindesk.core import vault_manager as vault_manager_module
 from openadmindesk.core.vault_manager import VaultManager
 from openadmindesk.core.account import Account
 
@@ -1502,3 +1506,47 @@ def test_v2_argon2_failure_does_not_log_master_password(
 
     assert result is False
     assert attempted_password not in caplog.text
+
+
+def test_vault_manager_executor_shutdown_calls_once(tmp_path, monkeypatch) -> None:
+    class FakeExecutor:
+        def __init__(self) -> None:
+            self.shutdown_calls: list[tuple[bool, bool]] = []
+
+        def shutdown(self, *, wait: bool, cancel_futures: bool) -> None:
+            self.shutdown_calls.append((wait, cancel_futures))
+
+    fake_executor = FakeExecutor()
+    monkeypatch.setattr(
+        vault_manager_module,
+        "ThreadPoolExecutor",
+        lambda *args, **kwargs: fake_executor,
+    )
+    manager = VaultManager(str(tmp_path / "vault.json"))
+    manager.close()
+    manager.close()
+    assert fake_executor.shutdown_calls == [(False, True)]
+
+
+def test_vault_manager_raises_error_after_close(tmp_path) -> None:
+    manager = VaultManager(str(tmp_path / "vault.json"))
+    manager.close()
+    with pytest.raises(
+        RuntimeError,
+        match="^VaultManager executor already closed$",
+    ):
+        asyncio.run(manager.get_all_accounts_async())
+
+
+def test_vault_manager_run_blocking_args_forwarding(tmp_path) -> None:
+    def combine(prefix: str, *, suffix: str) -> str:
+        return f"{prefix}:{suffix}"
+
+    manager = VaultManager(str(tmp_path / "vault.json"))
+    try:
+        result = asyncio.run(
+            manager._run_blocking(combine, "left", suffix="right")
+        )
+    finally:
+        manager.close()
+    assert result == "left:right"
