@@ -2827,3 +2827,18 @@ This entry covers the final verification of the packaging/release process and cl
     - Smoke test: check `--version` and metadata for extracted/runnable packages.
 - **Git Hygiene**: `git status` must not show unexpected tracked files.
 - **Note**: `commit` and `push` operations are not performed in this pass.
+
+---
+
+## 2026-07-16 (Phase 9.11 final clean-environment packaging verification)
+
+1. `demo_split_workspace.py`: E402 resolved via `QApplication(["demo"])`, UI text/order preserved; `python3 -m py_compile demo_split_workspace.py` exit 0, `ruff` exit 0, diff-check exit 0; independent reviewer PASS; checkpoint a48f947 pushed.
+2. Python package clean snapshot: `python3 tools/build.py check` and `python3 tools/build.py python-pkg` exit 0; wheel `openadmindesk-0.1.0-py3-none-any.whl` 200197 bytes; sdist `openadmindesk-0.1.0.tar.gz` 247424 bytes; installed `--version` exact `OpenAdminDesk 0.1.0`; both exact console entrypoints verified; desktop/svg in sdist.
+3. AppImage clean snapshot: build exit 0; artifact `OpenAdminDesk-x86_64.AppImage` 248964288 bytes executable; direct and extracted `AppRun` `--version` exact; root and installed desktop/icon metadata verified (`Exec=AppRun`, `Icon=openadmindesk`, `Type=Application`).
+4. Debian clean snapshot: `openadmindesk_0.1.0_all.deb` 381332 bytes; Package openadmindesk, Version 0.1.0, Architecture all; extraction; both scripts executable; app version exact; vault-upgrade help exit 0; desktop/svg metadata verified.
+5. RPM clean snapshot with isolated snapshot-local HOME: `openadmindesk-0.1.0-1.noarch.rpm` 531347 bytes; Name openadmindesk, Version 0.1.0, Release 1, Architecture noarch; rpm2cpio/cpio extraction; both scripts executable; app version exact; vault-upgrade help exit 0; desktop/svg metadata verified.
+6. Scope/hygiene: clean tracked status before docs pass; generated artifacts remained ignored under `build/`; no secrets or runtime state added.
+
+**Remaining risk**: checks are build/extract/CLI smoke on current Linux build server; full interactive Qt GUI launch of installed packages and native Fedora/RHEL host install were not performed in this pass.
+
+**Note**: no commit/push performed in this docs pass (previous checkpoint a48f947 already published separately).

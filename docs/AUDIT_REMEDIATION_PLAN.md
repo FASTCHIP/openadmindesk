@@ -262,7 +262,7 @@ Goal: Implement additional security measures after the initial publication.
 - [x] 9.10a Telnet cleartext warning; tunnel logging; executor lifecycle as separate sub-bullets.
 - [x] 9.10b tunnel logging
 - [x] 9.10c Executor lifecycle: idempotent close, pending-future cancellation, and predictable post-close async rejection for SFTP, ProfileStore, and VaultManager.
-- [ ] 9.11 Packaging/release clean-env verification and demo E402 hygiene.
+- [x] 9.11 Packaging/release clean-env verification and demo E402 hygiene (demo checkpoint a48f947; clean-source wheel/sdist/AppImage/deb/rpm build+extract smoke verified 2026-07-16).
 
 Verification:
 
