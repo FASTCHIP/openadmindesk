@@ -17,7 +17,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
     
@@ -33,7 +33,7 @@ jobs:
     
     - name: Lint with ruff
       run: |
-        poetry run ruff check src/
+        poetry run ruff check src tools tests
     
     - name: Test with pytest
       env:
@@ -41,17 +41,13 @@ jobs:
       run: |
         poetry run pytest tests/ -v --cov=src/openadmindesk
 
-  # Note: OpenAdminDesk is a Linux-only application
-  # Windows cross-platform support is not currently planned
-  # Remove this comment if Windows support is added in the future
-
   security:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: 3.12
     
@@ -75,7 +71,7 @@ jobs:
     - uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: 3.12
     

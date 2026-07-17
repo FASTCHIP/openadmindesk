@@ -1,0 +1,266 @@
+name: Build release artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            TAG_NAME="$GITHUB_REF_NAME"
+            if [[ "$TAG_NAME" != "v$VERSION" ]]; then
+              echo "Tag name $TAG_NAME does not match v$VERSION"
+              exit 1
+            fi
+          else
+            echo "Not a tag push, but checking version consistency"
+          fi
+
+  windows:
+    needs: metadata
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: python -m pip install ".[build]"
+
+      - name: Build check
+        run: python tools/build.py check
+
+      - name: Build Windows EXE
+        run: python tools/build.py windows-exe
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $exe = "dist\OpenAdminDesk.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "EXE not found at $exe"
+            exit 1
+          }
+          $process = Start-Process -FilePath $exe -ArgumentList "--version" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            Write-Error "EXE exited with code $($process.ExitCode)"
+            exit 1
+          }
+
+      - name: Stage artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-windows
+          $artifactName = "OpenAdminDesk-$env:VERSION-windows-x86_64.exe"
+          $artifactPath = Join-Path "release-windows" $artifactName
+          Copy-Item "dist\OpenAdminDesk.exe" $artifactPath
+          $hash = (Get-FileHash $artifactPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksumLine = "$hash  $artifactName"
+          $checksumLine | Out-File -FilePath "release-windows\SHA256SUMS-windows" -Encoding ascii
+          Write-Host "Created SHA256SUMS-windows"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ needs.metadata.outputs.version }}
+          path: |
+            release-windows/OpenAdminDesk-${{ env.VERSION }}-windows-x86_64.exe
+            release-windows/SHA256SUMS-windows
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    needs: metadata
+    runs-on: ubuntu-24.04
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y debhelper dh-python python3-all python3-setuptools python3-wheel rpm cpio
+
+      - name: Install Python dependencies
+        run: python -m pip install "poetry==2.3.2" .
+
+      - name: Install appimagetool
+        run: |
+          mkdir -p $RUNNER_TEMP/appimagetool-bin
+          curl --fail --location --retry 3 \
+            -H "Accept: application/octet-stream" \
+            -H "Authorization: Bearer ${{ github.token }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/AppImage/appimagetool/releases/assets/324406882 \
+            -o $RUNNER_TEMP/appimagetool-bin/appimagetool
+          echo "a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0  $RUNNER_TEMP/appimagetool-bin/appimagetool" | sha256sum --check
+          chmod 755 $RUNNER_TEMP/appimagetool-bin/appimagetool
+          echo "$RUNNER_TEMP/appimagetool-bin" >> $GITHUB_PATH
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          python tools/build.py check
+          python tools/build.py python-pkg
+          python tools/build.py appimage
+          python tools/build.py deb
+          mkdir -p "$RUNNER_TEMP/rpm-home"
+          HOME="$RUNNER_TEMP/rpm-home" python tools/build.py rpm
+
+      - name: Stage and smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/openadmindesk-*-py3-none-any.whl)
+          sdists=(dist/openadmindesk-*.tar.gz)
+          appimages=(dist/OpenAdminDesk-x86_64.AppImage)
+          debs=(dist/openadmindesk_*_all.deb)
+          rpms=(dist/openadmindesk-*-1.noarch.rpm)
+
+          if (( ${#wheels[@]} != 1 || ${#sdists[@]} != 1 || ${#appimages[@]} != 1 || ${#debs[@]} != 1 || ${#rpms[@]} != 1 )); then
+            echo "Expected exactly one wheel, sdist, AppImage, deb, and rpm artifact"
+            exit 1
+          fi
+          for artifact in "${wheels[0]}" "${sdists[0]}" "${appimages[0]}" "${debs[0]}" "${rpms[0]}"; do
+            test -s "$artifact"
+          done
+
+          APPIMAGE_EXTRACT_AND_RUN=1 "${appimages[0]}" --version | grep -Fx "OpenAdminDesk $VERSION"
+          test "$(dpkg-deb -f "${debs[0]}" Package)" = "openadmindesk"
+          test "$(dpkg-deb -f "${debs[0]}" Version)" = "$VERSION"
+          test "$(dpkg-deb -f "${debs[0]}" Architecture)" = "all"
+          rpm_metadata="$(rpm -qp --qf '%{NAME} %{VERSION} %{ARCH}\n' "${rpms[0]}")"
+          test "$rpm_metadata" = "openadmindesk $VERSION noarch"
+
+          mkdir -p release-linux
+          cp "${wheels[0]}" "${sdists[0]}" "${debs[0]}" "${rpms[0]}" release-linux/
+          cp "${appimages[0]}" "release-linux/OpenAdminDesk-$VERSION-linux-x86_64.AppImage"
+          (
+            cd release-linux
+            sha256sum -- * > SHA256SUMS-linux
+            sha256sum --check SHA256SUMS-linux
+          )
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ needs.metadata.outputs.version }}
+          path: release-linux/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [metadata, windows, linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-${{ needs.metadata.outputs.version }}"
+          path: release-dist
+          merge-multiple: true
+
+      - name: Assemble release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f release-dist/SHA256SUMS-linux release-dist/SHA256SUMS-windows
+
+          win_exe="release-dist/OpenAdminDesk-$VERSION-windows-x86_64.exe"
+          linux_appimage="release-dist/OpenAdminDesk-$VERSION-linux-x86_64.AppImage"
+          test -s "$win_exe"
+          test -s "$linux_appimage"
+
+          shopt -s nullglob
+          wheels=(release-dist/openadmindesk-*-py3-none-any.whl)
+          sdists=(release-dist/*.tar.gz)
+          debs=(release-dist/*_all.deb)
+          rpms=(release-dist/*-1.noarch.rpm)
+
+          if (( ${#wheels[@]} != 1 || ${#sdists[@]} != 1 || ${#debs[@]} != 1 || ${#rpms[@]} != 1 )); then
+            echo "Expected exactly one wheel, sdist, deb, and rpm artifact"
+            exit 1
+          fi
+
+          for artifact in "${wheels[@]}" "${sdists[@]}" "${debs[@]}" "${rpms[@]}"; do
+            test -s "$artifact"
+          done
+
+          (
+            cd release-dist
+            sha256sum -- * > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          notes_file="$RUNNER_TEMP/release_notes.txt"
+
+          echo "Linux artifacts are built and CLI/metadata-smoke verified. The Windows EXE is an unsigned preview. Verify SHA256SUMS before use. No credentials are bundled." > "$notes_file"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release-dist/* --clobber
+          else
+            prerelease_args=()
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              prerelease_args+=(--prerelease)
+            fi
+            gh release create "$tag" release-dist/* --verify-tag --title "OpenAdminDesk $tag" --notes-file "$notes_file" "${prerelease_args[@]}"
+          fi

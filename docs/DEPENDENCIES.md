@@ -15,8 +15,9 @@ sudo apt install freerdp2-x11
 # Debian/RPM/AppImage package build helpers
 sudo apt install debhelper-compat dh-python python3-all python3-setuptools python3-wheel
 sudo apt install libfuse2t64 rpm
-# appimagetool is not in Ubuntu apt; install the AppImageKit appimagetool binary
-# into PATH before running `python3 tools/build.py appimage`.
+# Local build requires `appimagetool` in PATH; GitHub release workflow downloads
+# AppImage/appimagetool immutable asset id 324406882 and verifies SHA256
+# `a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0` before execution.
 
 # Install the app
 pip install -e ".[dev]"
@@ -36,9 +37,13 @@ RDP uses the built-in `mstsc.exe` — no extra installation needed.
 ### Creating a Windows .exe
 
 ```powershell
-pip install pyinstaller
-pyinstaller --onefile --windowed --name OpenAdminDesk run.py
+pip install -e ".[build]"
+python tools/build.py check
+python tools/build.py windows-exe
 ```
+
+Output is `dist/OpenAdminDesk.exe`, one-file/windowed, with metadata/resources+generated ICO.
+Unsigned preview and SmartScreen warning possible; do not claim production support/signing.
 
 ### Portable mode
 
@@ -54,6 +59,14 @@ vault.json, sync config) will be stored in `./data/` alongside the executable.
 **Copy the entire folder to any Windows computer — everything comes with it.**
 
 To exit portable mode, delete the `.portable` file.
+
+## Automated GitHub release builds
+
+- `.github/workflows/release.yml` manual workflow_dispatch builds downloadable Actions artifacts. Exact `v<project-version>` tags additionally publish GitHub Release.
+- Linux wheel/sdist/AppImage/deb/rpm and Windows x86_64 EXE are produced. Platform checksums and global SHA256SUMS are provided.
+- tag must match pyproject version; only vMAJOR.MINOR.PATCH is stable, any other exact version tag is marked prerelease.
+- Windows builds are unsigned. No credentials/signing keys are bundled.
+- current limitation: workflow config/contracts locally verified, actual GitHub runner build not verified until first run.
 
 ## macOS
 
@@ -97,7 +110,7 @@ Current packaging smoke coverage targets:
 
 - Debian/Ubuntu family with Python 3.12+, Qt/PySide6 runtime libraries, OpenSSH client, FreeRDP/VNC viewers as optional protocol helpers.
 - RPM family package generation is verified with `rpmbuild` from the Ubuntu `rpm` package.
-- AppImage generation is verified with preinstalled AppImageKit `appimagetool`; build scripts do not download binaries or use sudo automatically.
+- AppImage generation is verified with pinned AppImage/appimagetool source/checksum workflow.
 
 Verified smoke checks in this stabilization pass:
 

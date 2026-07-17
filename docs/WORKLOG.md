@@ -2958,3 +2958,21 @@ This entry outlines the plan for implementing full GitHub automatic builds for d
   - `git diff --check` — exit 0.
 - Remaining limitation: real PyInstaller `.exe` build and launch are not verified on this Linux host; they require `windows-latest`. The artifact remains an unsigned preview, not a production Windows support claim.
 - No commit/push was performed during implementation passes.
+
+---
+
+## 2026-07-16 (GitHub release workflow implementation result)
+- changed `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `tests/test_release_workflow.py`, `docs/DEPENDENCIES.md`, `tools/README.md`;
+- workflow_dispatch builds/uploads Windows x86_64 unsigned preview EXE plus Linux wheel/sdist/AppImage/deb/rpm Actions artifacts; exact version tags add GitHub Release;
+- metadata gate exact tag/project version; non-final tags prerelease; global read permissions and release-job-only contents write;
+- appimagetool immutable asset `a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0` before execution; no old AppImageKit/unpinned executable/signing secrets;
+- Windows Start-Process exit smoke, Linux AppImage version + deb/rpm metadata smoke, exact artifact counts/nonempty checks, platform checksums, merged global SHA256SUMS, idempotent gh release upload/create;
+- CI setup-python v5 and Ruff now covers src/tools/tests;
+- verification evidence:
+  * combined pytest release/windows/build tools exit 0, 29 passed;
+  * release workflow contracts after prerelease fix exit 0, 5 passed;
+  * Ruff combined exit 0; py_compile exit 0; build.py check exit 0;
+  * explicit no trailing whitespace/final newline check PASS;
+  * PyYAML `safe_load` syntax parse of `.github/workflows/release.yml` — exit 0;
+- limitations: GitHub Actions YAML parser, Linux package builds in this new workflow, Windows PyInstaller build/smoke, and GitHub Release publishing are NOT verified until workflow is committed/pushed and run; no signing; workflow performs CLI/metadata smoke, not fresh package extraction smoke;
+- no commit/push performed in this implementation pass.
