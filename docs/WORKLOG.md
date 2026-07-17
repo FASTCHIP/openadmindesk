@@ -2994,3 +2994,55 @@ This entry outlines the plan for implementing full GitHub automatic builds for d
 - root cause closed locally: optional build extra was added without lock regeneration;
 - limitation: CI fix remains unverified until commit/push triggers a new GitHub run; do not claim green;
 - no commit/push in implementation pass.
+
+---
+
+## 2026-07-17 (User documentation: README.md update)
+
+### Plan
+Update README.md to reflect current stable state and add user-facing sections.
+
+### Changes
+- README.md: Updated status, stack, added Features/Installation/Getting Started sections.
+- WORKLOG.md: This entry.
+
+### Verification
+- Inspected README.md for markdown validity and link correctness.
+
+## 2026-07-17 (User documentation: INSTALL.md)
+
+### Plan
+Create end-user installation guide covering AppImage, deb, and rpm.
+
+### Changes
+- docs/INSTALL.md: New file with system requirements, install steps, verification, uninstall, troubleshooting.
+- docs/WORKLOG.md: This entry.
+
+### Verification
+- Inspected INSTALL.md for markdown validity and link correctness.
+
+
+## 2026-07-17 (User documentation: USER_GUIDE.md)
+
+### Plan
+Create end-user quickstart guide covering first session, connection tree, terminals, SFTP, vault, MultiExec, settings.
+
+### Changes
+- docs/USER_GUIDE.md: New file with practical user guide.
+- docs/WORKLOG.md: This entry + INSTALL.md date fix.
+
+### Verification
+- Inspected USER_GUIDE.md for markdown validity, link correctness, and factual accuracy against FEATURE_MATRIX.md.
+
+---
+
+## 2026-07-17 (README: Russian package download instructions)
+
+### Plan
+Add Russian-language section to README.md explaining how to download exe, rpm, deb packages.
+
+### Changes
+- README.md: Added «Как получить пакеты» subsection under Installation with table of formats and brief install commands in Russian.
+
+### Verification
+- Inspected README.md for markdown validity and correct table/link rendering.
