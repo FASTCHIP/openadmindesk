@@ -2902,3 +2902,59 @@ This entry marks the start of the cleanup of stale artifacts and one-off files:
   - `git status --short` — exit 0, exactly five approved tracked paths.
 - no pytest because no src/tests code changed;
 - no commit/push performed in cleanup implementation pass.
+
+---
+
+## 2026-07-16 (GitHub release automation plan)
+
+### Plan
+
+This entry outlines the plan for implementing full GitHub automatic builds for downloadable rpm/deb/exe applications:
+
+- **Passes**:
+  1. Windows preview PyInstaller builder/ICO and focused tests.
+  2. `release.yml` Linux+Windows jobs and workflow contract tests.
+  3. Separate `docs/result/review` for build verification.
+- **Linux Assets**: `wheel`, `sdist`, `AppImage`, `deb`, `rpm`.
+- **Windows Assets**: Unsigned preview one-file `.exe` built only on `windows-latest`.
+- **Workflow**:
+  - `workflow_dispatch` uploads Actions artifacts.
+  - `v*` tags with `pyproject.toml` version match publish GitHub Release assets plus `SHA256SUMS`.
+- **AppImage Toolchain**:
+  - Use new `AppImage/appimagetool` asset API id `324406882`.
+  - Required SHA256: `a6d71e2b6cd66f8e8d16c37ad164658985e0cf5fcaa950c90a482890cb9d13e0`.
+  - Old `AppImageKit` is obsolete; source is forbidden.
+- **Smoke Requirements**:
+  - Package input checks.
+  - Platform-specific builds.
+  - Linux: extract/version/metadata verification where supported.
+  - Windows: `.exe` exit smoke test.
+  - Checksum verification.
+- **Constraints**:
+  - No secrets or signing keys in workflow.
+  - No unpinned executable downloads.
+  - No claim of Windows production support before real runner build.
+  - No code signing yet.
+  - No commit/push in implementation passes.
+- **Acceptance Criteria**:
+  - Focused `pytest` + `ruff`.
+  - Workflow contract checks.
+  - Full exact diff/reviewer.
+  - *Note*: Actual GitHub runner builds remain not verified until workflow is published/run.
+
+---
+
+## 2026-07-16 (Windows preview builder pass result)
+
+- Changed `pyproject.toml`, `tools/build.py`, and added `tests/test_windows_build.py`.
+- Added pinned optional `PyInstaller>=6.21,<7`, deterministic stdlib PNG-in-ICO generation, Windows-only structured one-file/windowed PyInstaller command, `run.py` packaging input, and `windows-exe` CLI dispatch.
+- Preserved existing Linux builders; Windows command is not part of Linux `all`; no shell strings, sudo, downloads, signing keys, or committed binary icon.
+- Verification:
+  - `python3 -m pytest tests/test_windows_build.py tests/test_build_tools.py -q` — exit 0, `24 passed`;
+  - `ruff check tests/test_windows_build.py tests/test_build_tools.py tools/build.py` — exit 0, all checks passed;
+  - `python3 -m py_compile tests/test_windows_build.py tests/test_build_tools.py tools/build.py` — exit 0;
+  - `python3 tools/build.py check` — exit 0;
+  - ICO binary structure smoke and Linux platform guard — PASS;
+  - `git diff --check` — exit 0.
+- Remaining limitation: real PyInstaller `.exe` build and launch are not verified on this Linux host; they require `windows-latest`. The artifact remains an unsigned preview, not a production Windows support claim.
+- No commit/push was performed during implementation passes.
