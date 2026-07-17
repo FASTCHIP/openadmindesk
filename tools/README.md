@@ -53,17 +53,20 @@ python tools/build.py <command>
 
 ### Available Commands
 
-- `python-pkg` - Build Python packages (wheel and source)
-- `appimage` - Build AppImage package
+- `python-pkg` - Build wheel and source distribution
+- `appimage` - Build Linux AppImage
 - `deb` - Build Debian package
 - `rpm` - Build RPM package
-- `all` - Build all packages
+- `check` - Validate packaging inputs
+- `windows-exe` - Build unsigned Windows preview EXE
+- `all` - Build all Linux packages (python/AppImage/deb/rpm)
 
 ### Requirements
 
-- **AppImage**: Requires `appimagetool` and `wget`
-- **Debian**: Requires `dpkg-buildpackage`
+- **AppImage**: Requires `appimagetool` in `PATH`
+- **Debian**: Requires `dpkg-buildpackage` and `debhelper`
 - **RPM**: Requires `rpmbuild`
+- **Windows EXE**: Requires Windows and `pip install -e ".[build]"`
 
 ### Examples
 
@@ -71,12 +74,19 @@ python tools/build.py <command>
 # Build Python packages
 python tools/build.py python-pkg
 
+# Run packaging check
+python tools/build.py check
+
+# Build Windows preview EXE
+python tools/build.py windows-exe
+
 # Build AppImage
 python tools/build.py appimage
 
 # Build all packages
 python tools/build.py all
 ```
+The Windows command writes `dist/OpenAdminDesk.exe`; it is an unsigned preview.
 
 ## Docker Support
 
@@ -103,11 +113,11 @@ docker run -it --rm openadmindesk
 
 These tools are integrated into the GitHub Actions CI/CD pipeline:
 
-1. **Testing**: Automated test runs on multiple Python versions
-2. **Security**: Bandit and safety checks for vulnerabilities
-3. **Linting**: Code quality checks with ruff
-4. **Building**: Multi-platform package generation
-5. **Docker**: Container image building and pushing
+1. **ci.yml**: Automated tests, linting, security checks, and build verification.
+2. **release.yml**: Manual builds of Actions artifacts; exact version tags publish GitHub Releases.
+3. **Linux Packages**: Generates wheel, sdist, AppImage, deb, and rpm packages.
+4. **Windows Packages**: Generates unsigned preview EXE and SHA256SUMS.
+5. **Docker**: Verifies container image builds (no automated pushing).
 
 ## Development Workflow
 
@@ -127,3 +137,5 @@ All build and development tools include security best practices:
 - Secure build environments
 - Minimal dependency footprint
 - Regular security updates
+- Pinned and checksummed `appimagetool` in release workflow
+- No signing keys or credentials bundled in the repository

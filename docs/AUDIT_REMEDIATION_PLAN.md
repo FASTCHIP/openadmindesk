@@ -237,3 +237,35 @@ python tools/build.py deb
 - Do not polish themes before terminal architecture is decided.
 - Do not claim MobaXterm parity. Track concrete workflows instead.
 - Do not mark packaging complete based only on scripts existing.
+
+## Phase 9 - Post-publication Security Hardening
+
+Goal: Implement additional security measures after the initial publication.
+
+- [x] 9.1 ProfileStore rejects new unprotected primary/gateway secrets; credential IDs persist NULL; legacy readable (commits through a8d39c6).
+- [x] 9.2 VaultManager atomic non-mutating account upsert/rollback (ebc4f6b+393d430).
+- [x] 9.3 ProfileEditor requires unlocked vault for entered secrets, upsert/no remove, failure UX, tests (60e8e38 through cbcc3e3/632ca6a).
+- [x] 9.4 SessionWizard saved modes require unlocked vault + successful vault/store writes; temporary-connect remains memory-only; tests. (refs ddd6ace+4804fcb+848e64c)
+ - [x] 9.5a VaultManager atomic account removal rollback (refs atomic-rollback-9.5a)
+ - [x] 9.5b ProfileEditor validate/compensate vault upsert on store failure
+ - [x] 9.5c SessionWizard compensate vault upsert on store failure
+ - [x] 9.6a Read-only metadata dry-run scan; fail-closed migration; real CLI tests with capsys; dead code/import cleanup. (refs Phase9.6a audit-hardening)
+ - [x] 9.6b Secure SQLite+vault backup primitives (mode 0600, no plaintext JSON serialization).
+ - [x] 9.6c Compensated primary+gateway migration with rollback capabilities.
+ - [x] 9.6d CLI activation and schema-retirement decision.
+- [x] 9.7 SSH ProxyCommand connect-time revalidation/tests.
+- [x] 9.8 Passive periodic vault auto-lock UI timer/tests.
+- [x] 9.9a Version-aware v1 format/KDF metadata (LEGACY_VERSION, detect_version, hex shape validation, fail-closed unlock, PBKDF metadata/timestamps, constant-time key_hash, updated_at save-rollback).
+- [x] 9.9b Argon2id v2 new vaults + v1 unlock.
+- [x] 9.9c Explicit v1→v2 re-encryption backup/verified rollback (core API, no UI/CLI).
+- [x] 9.9d Optional UI/CLI upgrade flow. Read-only probe `inspect_vault_version()` and explicit Qt/CLI flow with `openadmindesk-vault-upgrade` tool. References to audit-hardening tasks without commit hash.
+- [x] 9.10a Telnet cleartext warning; tunnel logging; executor lifecycle as separate sub-bullets.
+- [x] 9.10b tunnel logging
+- [x] 9.10c Executor lifecycle: idempotent close, pending-future cancellation, and predictable post-close async rejection for SFTP, ProfileStore, and VaultManager.
+- [x] 9.11 Packaging/release clean-env verification and demo E402 hygiene (demo checkpoint a48f947; clean-source wheel/sdist/AppImage/deb/rpm build+extract smoke verified 2026-07-16).
+
+Verification:
+
+```bash
+pytest tests/test_profile_store.py tests/test_vault_manager.py tests/test_profile_editor.py tests/test_session_wizard.py -q
+```

@@ -38,9 +38,11 @@ dev = [
     "bandit>=1.7",
     "pip-audit>=2.7.0",
 ]
+build = ["PyInstaller>=6.21,<7"]
 
 [project.scripts]
 openadmindesk = "openadmindesk.app:main"
+openadmindesk-vault-upgrade = "openadmindesk.vault_upgrade_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

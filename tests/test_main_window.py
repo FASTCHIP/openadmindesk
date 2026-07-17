@@ -1,6 +1,7 @@
 """Test for main window."""
 
 
+from pathlib import Path
 from openadmindesk.core.profile import Profile
 from openadmindesk.ui.main_window import MainWindow
 from openadmindesk.ui.ssh_terminal_tab import SshTerminalTab
@@ -195,7 +196,171 @@ def test_connect_broadcast_and_disconnect_broadcast_with_multi_exec(monkeypatch)
     window._disconnect_broadcast()
     assert tab.broadcast_opted_in is False
 
-def test_main_window_applies_terminal_settings_to_open_ssh_tabs() -> None:
+# ── vault auto-lock polling ──────────────────────────────────────────────────
+
+
+def test_vault_auto_lock_timer_exists() -> None:
+    """Timer exists, is active, parented to window, with expected interval."""
+    window = MainWindow()
+    assert hasattr(window, '_vault_lock_timer')
+    timer = window._vault_lock_timer
+    assert timer.isActive()
+    assert timer.parent() is window
+    assert timer.interval() == 1000
+
+
+class _FakeVaultLocked:
+    """Fake vault that reports locked."""
+    def is_unlocked(self) -> bool:
+        return False
+
+
+class _FakeVaultUnlocked:
+    """Fake vault that reports unlocked."""
+    def is_unlocked(self) -> bool:
+        return True
+
+
+def test_vault_auto_lock_transition_unlocked_to_locked(monkeypatch) -> None:
+    """Poll detects unlocked→locked transition, updates actions, emits message."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    # Start in unlocked state, vault now locked
+    window.vault_manager = _FakeVaultLocked()  # type: ignore[assignment]
+    window._last_vault_unlocked = True
+
+    window._poll_vault_lock_state()
+
+    # State synced
+    assert window._last_vault_unlocked is False
+    # Exactly one auto-lock message
+    assert len(messages) == 1
+    assert "auto-locked" in messages[0].lower()
+    # Menu actions reflect locked state
+    assert window.unlock_vault_action.isEnabled() is True
+    assert window.lock_vault_action.isEnabled() is False
+
+
+def test_vault_auto_lock_no_duplicate_message_on_stable_locked(monkeypatch) -> None:
+    """Second poll on stable locked does not emit another message."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    window.vault_manager = _FakeVaultLocked()  # type: ignore[assignment]
+    window._last_vault_unlocked = True
+
+    # First poll – transition
+    window._poll_vault_lock_state()
+    assert len(messages) == 1
+
+    # Second poll – stable locked
+    window._poll_vault_lock_state()
+    assert len(messages) == 1
+
+
+def test_vault_auto_lock_stable_unlocked(monkeypatch) -> None:
+    """Stable unlocked: correct actions, no auto-lock message."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    window.vault_manager = _FakeVaultUnlocked()  # type: ignore[assignment]
+    window._last_vault_unlocked = True
+
+    window._poll_vault_lock_state()
+
+    assert len(messages) == 0  # no auto-lock message
+    assert window._last_vault_unlocked is True
+    # Menu reflects unlocked state
+    assert window.unlock_vault_action.isEnabled() is False
+    assert window.lock_vault_action.isEnabled() is True
+
+
+def test_vault_auto_lock_manual_lock_no_auto_message(monkeypatch) -> None:
+    """Manual lock sync prevents subsequent poll from emitting auto-lock."""
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    # Vault is locked (simulate after manual _lock_vault called)
+    window.vault_manager = _FakeVaultLocked()  # type: ignore[assignment]
+    # _lock_vault already synced this to False
+    window._last_vault_unlocked = False
+
+    window._poll_vault_lock_state()
+
+    # No auto-lock message on stable locked
+    assert len(messages) == 0
+    assert window._last_vault_unlocked is False
+
+
+class _FakeVaultSetup:
+    """Fake vault that supports setup but stays locked."""
+    def is_unlocked(self) -> bool:
+        return False
+    def setup_master_password(self, password: str) -> bool:
+        return True
+
+
+def test_vault_auto_lock_setup_success_no_false_auto_message(monkeypatch) -> None:
+    """Successful vault setup syncs from actual state (locked), no false auto-lock."""
+    import PySide6.QtWidgets
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QInputDialog, 'getText',
+        lambda *args, **kwargs: ("test-pass", True)
+    )
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QMessageBox, 'information',
+        lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QMessageBox, 'warning',
+        lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        PySide6.QtWidgets.QMessageBox, 'critical',
+        lambda *args, **kwargs: None
+    )
+
+    window = MainWindow()
+    messages: list[str] = []
+    monkeypatch.setattr(
+        window.connection_event_area, 'showMessage',
+        lambda msg, timeout=0: messages.append(msg)
+    )
+
+    window.vault_manager = _FakeVaultSetup()  # type: ignore[assignment]
+    window._last_vault_unlocked = False  # initial state matches vault
+
+    window._setup_vault()
+
+    # After setup, _last_vault_unlocked synced from vault.is_unlocked() (False)
+    assert window._last_vault_unlocked is False
+    # Poll should see no unlocked→locked transition → no auto-lock message
+    window._poll_vault_lock_state()
+    auto_lock_msgs = [m for m in messages if "auto-locked" in m.lower()]
+    assert len(auto_lock_msgs) == 0
+    # Actions reflect locked state
+    assert window.unlock_vault_action.isEnabled() is True
+    assert window.lock_vault_action.isEnabled() is False
+
+
+def test_main_window_applies_terminal_settings_to_open_ssh_tabs(monkeypatch) -> None:
     class FakeTerminal:
         def __init__(self) -> None:
             self.font = None
@@ -243,4 +408,376 @@ def test_main_window_applies_terminal_settings_to_open_ssh_tabs() -> None:
     assert tab.terminal.font == ("DejaVu Sans Mono", 14)
     assert tab.terminal.opacity == 200
     assert tab.terminal._max_scrollback == 9000
+
+
+def test_main_window_upgrade_vault_action_exists() -> None:
+    """Test that upgrade vault action exists."""
+    window = MainWindow()
+
+    # Verify upgrade action exists
+    assert window.upgrade_vault_action is not None
+
+
+def test_vault_upgrade_error_messages_include_recovery_path(monkeypatch) -> None:
+    """Test that vault upgrade error messages include recovery path."""
+    window = MainWindow()
+
+    # Import required classes locally
+    from PySide6.QtWidgets import QMessageBox
+    from openadmindesk.core.vault_upgrade import VaultUpgradeError
+
+    # Mock QMessageBox methods to capture messages
+    captured_messages = []
+
+    def capture_warning(*args, **kwargs):
+        captured_messages.append(("warning", str(args[2]) if len(args) > 2 else ""))
+        return 0
+
+    def capture_critical(*args, **kwargs):
+        captured_messages.append(("critical", str(args[2]) if len(args) > 2 else ""))
+        return 0
+
+    monkeypatch.setattr(QMessageBox, 'warning', capture_warning)
+    monkeypatch.setattr(QMessageBox, 'critical', capture_critical)
+
+    # Test cases: (rollback_succeeded, expected_kind, expected_text)
+    test_cases = [
+        (None, "critical", "Source was not replaced"),
+        (True, "warning", "Original v1 restored"),
+        (False, "critical", "Rollback failed"),
+    ]
+
+    for rollback_succeeded, expected_kind, expected_text in test_cases:
+        # Reset captured messages
+        captured_messages.clear()
+
+        # Create a VaultUpgradeError with recovery_backup_path
+        error = VaultUpgradeError(
+            "upgrade failed",
+            rollback_succeeded=rollback_succeeded,
+            recovery_backup_path="/tmp/recovery.json"
+        )
+
+        # Call the method that shows the error
+        window._show_upgrade_error(error)
+
+        # Verify the message was shown
+        assert len(captured_messages) == 1
+        kind, message = captured_messages[0]
+        assert kind == expected_kind
+        assert expected_text in message
+        assert "/tmp/recovery.json" in message
+        # Verify that sensitive information is not shown
+        assert "source_sha256" not in message
+        assert "password" not in message
+
+
+def test_vault_upgrade_menu_order() -> None:
+    """Test that vault upgrade menu has correct order and actions."""
+    window = MainWindow()
+
+    # Import QMenu locally
+    from PySide6.QtWidgets import QMenu
+
+    # Find the Vault menu
+    vault_menu = None
+    for menu in window.menuBar().findChildren(QMenu):
+        if menu.title() == "&Vault":
+            vault_menu = menu
+            break
+
+    assert vault_menu is not None
+
+    # Get actions and convert to text list
+    actions = vault_menu.actions()
+    action_texts = []
+    for action in actions:
+        if action.isSeparator():
+            action_texts.append("<separator>")
+        else:
+            action_texts.append(action.text())
+
+    # Check exact order
+    expected_order = [
+        "Setup Master Password...",
+        "Unlock Vault...",
+        "Lock Vault",
+        "Upgrade Vault Security…",
+        "<separator>",
+        "Manage Accounts..."
+    ]
+
+    assert action_texts == expected_order
+
+    # Check that upgrade action is enabled
+    upgrade_action = None
+    for action in actions:
+        if action.text() == "Upgrade Vault Security…":
+            upgrade_action = action
+            break
+
+    assert upgrade_action is not None
+    assert upgrade_action.isEnabled() is True
+
+
+def test_vault_upgrade_v2_skips_password_and_core(monkeypatch) -> None:
+    """Test that vault upgrade v2 skips password and core calls."""
+    # Import module locally
+    import openadmindesk.ui.main_window as main_window_module
+
+    # Patch module inspect to return version 2
+    def mock_inspect_vault_version(p):
+        return 2
+
+    monkeypatch.setattr(main_window_module, 'inspect_vault_version', mock_inspect_vault_version)
+
+    # Patch QInputDialog.getText to raise AssertionError if called
+    from PySide6.QtWidgets import QInputDialog
+    def mock_get_text(*args, **kwargs):
+        raise AssertionError("QInputDialog.getText should not be called for v2")
+
+    monkeypatch.setattr(QInputDialog, 'getText', mock_get_text)
+
+    # Patch core functions to raise AssertionError if called
+    def mock_core_function(*args, **kwargs):
+        raise AssertionError("Core function should not be called for v2")
+
+    # Patch the main window module, not the core module
+    monkeypatch.setattr(main_window_module, "upgrade_vault_v1_to_v2", mock_core_function)
+
+    # Patch QMessageBox.information to capture calls
+    from PySide6.QtWidgets import QMessageBox
+    captured_info = []
+    def mock_information(*args, **kwargs):
+        captured_info.append((args, kwargs))
+
+    monkeypatch.setattr(QMessageBox, 'information', mock_information)
+
+    # Create window and call the slot
+    window = MainWindow()
+    window._on_upgrade_vault()
+
+    # Assert that information dialog was shown with v2 message
+    assert len(captured_info) == 1
+    assert "v2" in captured_info[0][0][2]  # Check message content
+
+
+def test_vault_upgrade_warning_cancel_skips_lock_password_and_core(monkeypatch) -> None:
+    """Test that vault upgrade warning cancel skips lock, password and core calls."""
+    # Import module locally
+    import openadmindesk.ui.main_window as main_window_module
+
+    # Patch module inspect to return version 1
+    def mock_inspect_vault_version(p):
+        return 1
+
+    monkeypatch.setattr(main_window_module, 'inspect_vault_version', mock_inspect_vault_version)
+
+    # Set warning response to cancel (QMessageBox.No)
+    from PySide6.QtWidgets import QMessageBox
+    def mock_warning(*args, **kwargs):
+        return QMessageBox.No
+
+    monkeypatch.setattr(QMessageBox, 'warning', mock_warning)
+
+    # Patch instance vault_manager.lock, QInputDialog and core to raise AssertionError if called
+    def mock_lock(*args, **kwargs):
+        raise AssertionError("Instance lock should not be called when warning is cancelled")
+
+    def mock_get_text(*args, **kwargs):
+        raise AssertionError("QInputDialog.getText should not be called when warning is cancelled")
+
+    def mock_core_function(*args, **kwargs):
+        raise AssertionError("Core function should not be called when warning is cancelled")
+
+    # Create window and patch the methods
+    window = MainWindow()
+    monkeypatch.setattr(window.vault_manager, 'lock', mock_lock)
+    from PySide6.QtWidgets import QInputDialog
+    monkeypatch.setattr(QInputDialog, 'getText', mock_get_text)
+    # Patch the main window module, not the core module
+    monkeypatch.setattr(main_window_module, "upgrade_vault_v1_to_v2", mock_core_function)
+
+    # Call the slot
+    window._on_upgrade_vault()
+
+
+def test_vault_upgrade_password_cancel_locks_without_core(monkeypatch) -> None:
+    """Test that vault upgrade password cancel locks without core calls."""
+    # Import module locally
+    import openadmindesk.ui.main_window as main_window_module
+    from PySide6.QtWidgets import QMessageBox, QInputDialog
+
+    # Test with both empty password and non-empty password
+    for qinput_result in [("", False), ("", True)]:
+        # Create fresh window for each test
+        window = MainWindow()
+
+        # Set vault path and state
+        window.vault_manager.vault_path = Path("/tmp/test-vault.json")
+        window._last_vault_unlocked = True
+
+        # Patch instance is_unlocked and lock to track calls
+        lock_calls = []
+        state = {"unlocked":True}
+        def mock_is_unlocked():
+            return state["unlocked"]
+
+        def mock_lock():
+            lock_calls.append(True)
+            state["unlocked"] = False
+
+        monkeypatch.setattr(window.vault_manager, 'is_unlocked', mock_is_unlocked)
+        monkeypatch.setattr(window.vault_manager, 'lock', mock_lock)
+
+        # Set warning response to Yes
+        def mock_warning(*args, **kwargs):
+            return QMessageBox.Yes
+
+        monkeypatch.setattr(QMessageBox, 'warning', mock_warning)
+
+        # Set question response to Yes to avoid modal hang
+        def mock_question(*args, **kwargs):
+            return QMessageBox.Yes
+
+        monkeypatch.setattr(QMessageBox, 'question', mock_question)
+
+        # Set inspect to return version 1
+        def mock_inspect_vault_version(p):
+            return 1
+
+        monkeypatch.setattr(main_window_module, 'inspect_vault_version', mock_inspect_vault_version)
+
+        # Set QInputDialog.getText response
+        def mock_get_text(*args, **kwargs):
+            return qinput_result
+
+        monkeypatch.setattr(QInputDialog, 'getText', mock_get_text)
+
+        # Patch core to raise AssertionError if called
+        def mock_core_function(*args, **kwargs):
+            raise AssertionError("Core function should not be called when password is empty")
+
+        # Patch the main window module, not the core module
+        monkeypatch.setattr(main_window_module, "upgrade_vault_v1_to_v2", mock_core_function)
+
+        # Call the slot
+        window._on_upgrade_vault()
+
+        # Assert one lock call with correct arguments
+        assert lock_calls == [True]
+        assert state["unlocked"] is False
+        assert window._last_vault_unlocked is False
+
+
+def test_vault_upgrade_full_flow_calls_core_once_and_avoids_auto_lock_notice(monkeypatch) -> None:
+    """Test full vault upgrade flow calls core once and avoids auto-lock notice."""
+    # Import modules locally
+    import openadmindesk.ui.main_window as main_window_module
+    from PySide6.QtWidgets import QMessageBox, QInputDialog
+    from openadmindesk.core.vault_upgrade import VaultUpgradeResult
+
+    # Create window
+    window = MainWindow()
+
+    # Set vault path and state
+    window.vault_manager.vault_path = Path("/tmp/test-vault.json")
+    window._last_vault_unlocked = True
+
+    # Patch instance is_unlocked and lock to track calls
+    lock_calls = []
+    state = {"unlocked":True}
+    def mock_is_unlocked():
+        return state["unlocked"]
+
+    def mock_lock(*args, **kwargs):
+        lock_calls.append(True)
+        state["unlocked"] = False
+
+    monkeypatch.setattr(window.vault_manager, 'is_unlocked', mock_is_unlocked)
+    monkeypatch.setattr(window.vault_manager, 'lock', mock_lock)
+
+    # Set warning response to Yes
+    def mock_warning(*args, **kwargs):
+        return QMessageBox.Yes
+
+    monkeypatch.setattr(QMessageBox, 'warning', mock_warning)
+
+    # Set question response to Yes
+    def mock_question(*args, **kwargs):
+        return QMessageBox.Yes
+
+    monkeypatch.setattr(QMessageBox, 'question', mock_question)
+
+    # Set information response to capture text
+    captured_info = []
+    def mock_information(*args, **kwargs):
+        captured_info.append((args, kwargs))
+
+    monkeypatch.setattr(QMessageBox, 'information', mock_information)
+
+    # Set QInputDialog.getText response
+    def mock_get_text(*args, **kwargs):
+        return ("entered-password", True)
+
+    monkeypatch.setattr(QInputDialog, 'getText', mock_get_text)
+
+    # Set inspect to return version 1
+    def mock_inspect_vault_version(p):
+        return 1
+
+    monkeypatch.setattr(main_window_module, 'inspect_vault_version', mock_inspect_vault_version)
+
+    # Mock the core upgrade function to capture arguments and return a real result
+    core_calls = []
+    def mock_core_upgrade(*args, **kwargs):
+        core_calls.append(args)
+        return VaultUpgradeResult(1, 2, 0, "a" * 64, "b" * 64, True, None)
+
+    # Patch the main window module, not the core module
+    monkeypatch.setattr(main_window_module, "upgrade_vault_v1_to_v2", mock_core_upgrade)
+
+    # Mock connection_event_area.showMessage to capture messages
+    captured_messages = []
+    def mock_show_message(*args, **kwargs):
+        captured_messages.append((args, kwargs))
+
+    monkeypatch.setattr(window.connection_event_area, 'showMessage', mock_show_message)
+
+    # Call the slot
+    window._on_upgrade_vault()
+
+    # Call _poll_vault_lock_state to simulate the polling
+    window._poll_vault_lock_state()
+
+    # Assert one lock call with correct arguments
+    assert lock_calls == [True]
+
+    # Assert core was called exactly once with correct arguments (exact Path/password)
+    assert len(core_calls) == 1
+    assert core_calls[0][0] == Path("/tmp/test-vault.json")
+    assert core_calls[0][1] == "entered-password"
+
+    # Assert _last_vault_unlocked is False
+    assert window._last_vault_unlocked is False
+
+    # Assert lock is disabled and unlock is enabled
+    assert window.lock_vault_action.isEnabled() is False
+    assert window.unlock_vault_action.isEnabled() is True
+
+    # Assert no message contains auto-locked
+    auto_locked_messages = [msg for msg in captured_messages if "auto-locked" in str(msg).lower()]
+    assert len(auto_locked_messages) == 0
+
+    # Assert security checks on dialogs (captured warning/info, not just status messages)
+    # Check that captured warning and info dialogs don't contain sensitive data
+    for msg in captured_info:
+        msg_text = str(msg[0][2]) if len(msg[0]) > 2 else ""
+        assert "entered-password" not in msg_text
+        assert "a" * 64 not in msg_text  # hash fragment
+        assert "b" * 64 not in msg_text  # hash fragment
+
+    # Assert that the information dialog text contains "Backup removed"
+    info_texts = [msg[0][2] for msg in captured_info]
+    assert any("Backup removed" in text for text in info_texts)
 

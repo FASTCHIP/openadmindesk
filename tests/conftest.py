@@ -94,6 +94,7 @@ QT_TEST_FILES = {
     "test_ssh_terminal_tab.py",
     "test_tabbed_workspace.py",
     "test_terminal_widget.py",
+    "test_telnet_session_tab.py",
     "test_tunnel_manager.py",
     "test_workspace_container.py",
     "test_workspace_routing.py",

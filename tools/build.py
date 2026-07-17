@@ -8,6 +8,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import tomllib
 import zlib
 from pathlib import Path
@@ -116,6 +117,38 @@ def write_png_icon(path: Path, size: int = 256) -> None:
     path.write_bytes(data)
 
 
+def write_ico_icon(path: Path, size: int = 256) -> None:
+    """Write an ICO icon containing a PNG image."""
+    if not 1 <= size <= 256:
+        raise ValueError("ICO size must be between 1 and 256")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_png = Path(tmpdir) / "openadmindesk.png"
+        write_png_icon(tmp_png, size)
+        png_data = tmp_png.read_bytes()
+
+    width = 0 if size == 256 else size
+    height = 0 if size == 256 else size
+
+    # Header: Reserved (2), Type (2), ImageCount (2)
+    header = struct.pack("<HHH", 0, 1, 1)
+    # Entry: Width (1), Height (1), ColorCount (1), Reserved (1), Planes (2), BitCount (2), Size (4), Offset (4)
+    entry = struct.pack(
+        "<BBBBHHII",
+        width,
+        height,
+        0,
+        0,
+        1,
+        32,
+        len(png_data),
+        22,
+    )
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(header + entry + png_data)
+
+
 def install_linux_assets(root: Path | str, exec_value: str = APP_ID) -> None:
     """Install desktop integration assets under a package root."""
     root_path = Path(root)
@@ -140,6 +173,7 @@ def check_packaging_inputs() -> bool:
         "MANIFEST.in",
         str(DESKTOP_SOURCE),
         str(SVG_ICON_SOURCE),
+        "run.py",
     ]
     missing = [path for path in required if not Path(path).exists()]
     if missing:
@@ -219,6 +253,42 @@ exec python3 -m openadmindesk.app "$@"
     shutil.rmtree(appdir, ignore_errors=True)
 
     print(f"AppImage created: dist/{appimage_name}")
+
+
+def build_windows_exe() -> None:
+    """Build the unsigned Windows preview executable with PyInstaller."""
+    if sys.platform != "win32":
+        raise RuntimeError("Windows executable can only be built on Windows")
+
+    print("Building Windows executable...")
+    icon_path = Path("build/windows/openadmindesk.ico")
+    write_ico_icon(icon_path)
+    run_command([
+        sys.executable,
+        "-m",
+        "PyInstaller",
+        "--noconfirm",
+        "--clean",
+        "--onefile",
+        "--windowed",
+        "--name",
+        "OpenAdminDesk",
+        "--icon",
+        str(icon_path),
+        "--paths",
+        "src",
+        "--collect-all",
+        "openadmindesk",
+        "--copy-metadata",
+        "openadmindesk",
+        "run.py",
+    ])
+    artifact = Path("dist/OpenAdminDesk.exe")
+    if not artifact.is_file() or artifact.stat().st_size == 0:
+        raise RuntimeError(
+            "PyInstaller completed but dist/OpenAdminDesk.exe is missing or empty"
+        )
+    print("Windows executable created: dist/OpenAdminDesk.exe")
 
 
 def build_deb_package():
@@ -377,6 +447,7 @@ def main():
         print("  deb           - Build Debian package")
         print("  rpm           - Build RPM package")
         print("  check         - Validate packaging inputs without building")
+        print("  windows-exe   - Build Windows preview executable")
         print("  all           - Build all packages")
         return
 
@@ -392,6 +463,8 @@ def main():
         build_deb_package()
     elif command == "rpm":
         build_rpm_package()
+    elif command == "windows-exe":
+        build_windows_exe()
     elif command == "all":
         build_python_packages()
         build_appimage()

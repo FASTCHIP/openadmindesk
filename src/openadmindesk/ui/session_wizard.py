@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
+import copy
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
@@ -188,11 +190,148 @@ class SessionWizard(QWizard):
     def accept(self) -> None:
         """Create the profile on finish."""
         profile = self._build_profile()
-        if profile:
+        if not profile:
+            # Invalid profile, do not close
+            return
+
+        # Handle credential save modes
+        launch_behavior = self.launch_behavior()
+        if launch_behavior == _LAUNCH_TEMP_CONNECT:
+            # Temporary connect mode - no vault/store calls, just set _saved_profile
             self._saved_profile = profile
-            if self.launch_behavior() != _LAUNCH_TEMP_CONNECT:
-                self.store.save_profile(profile)
+            super().accept()
+            return
+
+        # For save modes, check vault state and handle accordingly
+        credential_id = profile.credential_id
+        password = profile.password
+
+        # If password entered but vault is absent or locked, show error
+        if password and (not self.vault or not self.vault.is_unlocked()):
+            QMessageBox.critical(
+                self,
+                _("Vault Required"),
+                _("A vault is required to save passwords. Please unlock the vault first.")
+            )
+            return
+
+        # Initialize previous_account for compensation tracking
+        previous_account = None
+
+        # If vault is unlocked and password is entered, save to vault
+        if password and self.vault and self.vault.is_unlocked():
+            # Create account with entered password
+            account = Account(
+                name=str(profile.name),
+                username=str(profile.username),
+                password=str(password),
+                host=str(profile.host or "localhost"),
+                port=profile.port,
+                service_type=profile.session_type.value,
+            )
+            # If credential_id exists, get existing account and preserve its private_key/private_key_passphrase and other fields
+            existing_account = None
+            if credential_id:
+                existing_account = self.vault.get_account(credential_id)
+                if existing_account:
+                    # Preserve existing account fields that weren't provided
+                    replace_fields = {}
+                    if existing_account.private_key is not None:
+                        replace_fields['private_key'] = existing_account.private_key
+                    if existing_account.private_key_passphrase is not None:
+                        replace_fields['private_key_passphrase'] = existing_account.private_key_passphrase
+                    if credential_id is not None:
+                        replace_fields['id'] = credential_id
+                    if replace_fields:
+                        account = replace(account, **replace_fields)
+            try:
+                if self.vault.add_account(account):
+                    # Successfully added to vault, update profile
+                    profile = replace(profile, credential_id=account.id, password=None)
+                else:
+                    # Vault error - return without saving
+                    QMessageBox.critical(
+                        self,
+                        _("Vault Error"),
+                        _("Failed to save account to vault.")
+                    )
+                    return
+            except Exception:
+                # Vault error - return without saving
+                QMessageBox.critical(
+                    self,
+                    _("Vault Error"),
+                    _("Failed to save account to vault.")
+                )
+                return
+
+        # Store previous account state for compensation (only if we entered the vault block)
+        if password and self.vault and self.vault.is_unlocked():
+            previous_account = copy.deepcopy(existing_account) if existing_account else None
+
+        # If store.save_profile fails, return without saving
+        try:
+            if not self.store.save_profile(profile):
+                # Compensation: remove account from vault if it was added
+                if password and self.vault and self.vault.is_unlocked():
+                    if not self._compensate_vault_operation(account, previous_account):
+                        # If compensation fails, show recovery message
+                        QMessageBox.critical(
+                            self,
+                            _("Vault Recovery Required"),
+                            _("Failed to compensate vault operation. No secrets were leaked, but manual vault recovery may be required.")
+                        )
+
+                QMessageBox.critical(
+                    self,
+                    _("Save Error"),
+                    _("Failed to save profile.")
+                )
+                return
+        except Exception:
+            # Compensation: remove account from vault if it was added
+            if password and self.vault and self.vault.is_unlocked():
+                if not self._compensate_vault_operation(account, previous_account):
+                    # If compensation fails, show recovery message
+                    QMessageBox.critical(
+                        self,
+                        _("Vault Recovery Required"),
+                        _("Failed to compensate vault operation. No secrets were leaked, but manual vault recovery may be required.")
+                    )
+
+            QMessageBox.critical(
+                self,
+                _("Save Error"),
+                _("Failed to save profile.")
+            )
+            return
+
+        # Success - set _saved_profile and close
+        self._saved_profile = profile
         super().accept()
+
+    def _compensate_vault_operation(self, account: Account, previous_account: Optional[Account]) -> bool:
+        """Compensate vault operations on store failure.
+
+        Args:
+            account: The account that was added to vault
+            previous_account: The previous account state to restore, if any
+
+        Returns:
+            bool: True if compensation succeeded, False otherwise
+        """
+        try:
+            if previous_account:
+                # Restore previous account state
+                if not self.vault.add_account(previous_account):
+                    return False
+            else:
+                # Remove the newly created account
+                if not self.vault.remove_account(account.id):
+                    return False
+            return True
+        except Exception:
+            return False
 
     def created_profile(self) -> Optional[Profile]:
         return getattr(self, "_saved_profile", None)
@@ -210,6 +349,7 @@ class SessionWizard(QWizard):
         }
 
     def _build_profile(self) -> Optional[Profile]:
+        """Build profile without side effects."""
         st = self.protocol_page.selected_type()
         name = self.field("name")
         host = self.field("host")
@@ -222,21 +362,17 @@ class SessionWizard(QWizard):
         password = self.field("password") or None
         private_key_path = self.field("private_key") or None
         credential_id = self.credential_page.selected_credential_id()
-        # Store password in vault if unlocked, otherwise keep in profile
-        profile_password = password
-        profile_passphrase = None
-        if password and self.vault and self.vault.is_unlocked():
-            account = Account(
-                name=str(name),
-                username=str(username),
-                password=str(password),
-                host=str(host or "localhost"),
-                port=port,
-                service_type=st.value,
-            )
-            if self.vault.add_account(account):
-                credential_id = account.id
-                profile_password = None  # password stored in vault
+
+        # Return password in memory unless existing credential ID is selected with empty password
+        # This makes _build_profile side-effect free
+        # If credential_id exists and password is empty, password should be None (preserve existing)
+        # If credential_id is None and password is provided, password should be in memory
+        # If credential_id exists and password is provided, password should be in memory
+        # If no credential_id and no password, password should be None
+        if credential_id and not password:
+            password = None
+        # All other cases (new credential with password, existing credential with new password)
+        # keep password as-is (in memory)
 
         # Common fields
         kwargs: dict = dict(
@@ -245,9 +381,9 @@ class SessionWizard(QWizard):
             port=port,
             username=username,
             session_type=st,
-            password=profile_password,
+            password=password,
             private_key_path=private_key_path,
-            private_key_passphrase=profile_passphrase,
+            private_key_passphrase=None,
             credential_id=credential_id,
             parent_folder=self.connection_page.selected_folder(),
         )

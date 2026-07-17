@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QToolBar,
+    QWidget, QVBoxLayout, QLabel, QPushButton, QToolBar, QMessageBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 
@@ -78,7 +78,25 @@ class TelnetSessionTab(QWidget):
         else:
             self._connect()
 
-    def _connect(self) -> None:
+    def _confirm_cleartext_connection(self) -> bool:
+        """Show warning dialog for cleartext connection and return user's choice."""
+        title = _("Telnet Connection Warning")
+        body = _("This connection uses the Telnet protocol, which transmits credentials and session data in plaintext over the network. Network observers can read your username, password, and all session data. Only use this connection type for trusted legacy systems.")
+        try:
+            button = QMessageBox.warning(
+                self,
+                title,
+                body,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            return button == QMessageBox.Yes
+        except Exception:
+            # Fail closed on dialog exception
+            return False
+
+    def _start_connection(self) -> None:
+        """Start connection process after warning confirmation."""
         self.connect_button.setEnabled(False)
         self.status_label.setText(_("● Connecting..."))
         self.status_label.setStyleSheet(_STATUS_CONNECTING)
@@ -103,12 +121,29 @@ class TelnetSessionTab(QWidget):
 
         QTimer.singleShot(50, do_connect)
 
-    def _on_key_pressed(self, text: str) -> None:
-        self.backend.send(text)
+    def _connect(self) -> None:
+        """Connect to Telnet server with warning dialog."""
+        # Show warning dialog before connecting
+        if not self._confirm_cleartext_connection():
+            # User cancelled, do not proceed with connection
+            return
+
+        # User confirmed, proceed with connection
+        self._start_connection()
 
     def _on_reconnect(self) -> None:
+        """Reconnect to Telnet server with warning dialog."""
+        # Show warning dialog before reconnecting
+        if not self._confirm_cleartext_connection():
+            # User cancelled, preserve connection state
+            return
+
+        # User confirmed, disconnect and reconnect
         self._disconnect()
-        self._connect()
+        self._start_connection()
+
+    def _on_key_pressed(self, text: str) -> None:
+        self.backend.send(text)
 
     def _disconnect(self) -> None:
         self.backend.disconnect()

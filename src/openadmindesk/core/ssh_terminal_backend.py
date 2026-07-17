@@ -14,6 +14,7 @@ from paramiko.ssh_exception import SSHException
 
 from openadmindesk.core.host_key import HostKeyPrompt, HostKeyTrustStore, TrustOnFirstUsePolicy
 from openadmindesk.core.profile import Profile
+from openadmindesk.core.profile_validation import validate_proxy_command
 from openadmindesk.core.terminal_backend import TerminalBackend
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,7 @@ class SSHTerminalBackend(TerminalBackend):
         Args:
             on_output: Called with raw bytes received from the server.
         """
+        self._last_error = ""
         self._on_output = on_output
         try:
             host = self.profile.host
@@ -64,6 +66,16 @@ class SSHTerminalBackend(TerminalBackend):
             if username and not _is_valid_ssh_input(username):
                 logger.error(f"Invalid username: {username}")
                 return False
+
+            # Re-validate proxy command at connect time (profile may have been
+            # mutated or imported after construction).
+            if self.profile.proxy_command:
+                is_valid_proxy, proxy_error = validate_proxy_command(self.profile.proxy_command)
+                if not is_valid_proxy:
+                    error_msg = f"Proxy command rejected: {proxy_error}"
+                    self._last_error = error_msg
+                    logger.warning("Proxy command rejected: %s", proxy_error)
+                    return False
 
             self._client = paramiko.SSHClient()
             self._client.load_system_host_keys()
