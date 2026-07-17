@@ -1181,15 +1181,14 @@ class MainWindow(QMainWindow):
         self._update_status_bar_sessions()
 
     def _auto_connect_tab(self, tab_name: str) -> None:
-        """Auto-click the Connect button on a newly opened SSH tab."""
+        """Auto-click the Connect button on a newly opened session tab."""
         workspaces = self.workspace_container.get_all_workspaces()
         for ws in workspaces:
             for i in range(ws.count()):
                 if ws.tabText(i).endswith(tab_name.split(" ", 1)[-1]) or \
                    tab_name in ws.tabText(i):
                     w = ws.widget(i)
-                    from openadmindesk.ui.ssh_terminal_tab import SshTerminalTab
-                    if isinstance(w, SshTerminalTab) and not w._connected:
+                    if hasattr(w, '_connect') and hasattr(w, '_connected') and not w._connected:
                         w._connect()
                         return
 

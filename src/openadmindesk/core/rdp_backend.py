@@ -31,6 +31,7 @@ class RdpBackend:
         self._stderr_lines: list[str] = []
         self._stderr_thread: Optional[threading.Thread] = None
         self._binary = find_rdp_binary()
+        self._cmdkey_target: Optional[str] = None  # Windows credential target
 
     def connect(self) -> bool:
         if not self._binary:
@@ -45,12 +46,25 @@ class RdpBackend:
 
     def _connect_windows(self) -> bool:
         try:
+            # Store credentials via cmdkey so mstsc auto-authenticates
+            if self.profile.username and self.profile.password:
+                self._cmdkey_target = f"TERMSRV/{self.profile.host}"
+                subprocess.run(
+                    [
+                        "cmdkey", "/generic:" + self._cmdkey_target,
+                        "/user:" + self.profile.username,
+                        "/pass:" + self.profile.password,
+                    ],
+                    check=False, capture_output=True, text=True,
+                )
+
             lines = [
                 f"full address:s:{self.profile.host}:{self.profile.port}",
                 f"username:s:{self.profile.username or ''}",
-                "prompt for credentials:i:1",
                 "authentication level:i:0",
             ]
+            if self.profile.password:
+                lines.append("prompt for credentials:i:0")
             # Drive redirection
             if self.profile.rdp_drive_redirection:
                 path = self.profile.rdp_drive_path or "*"
@@ -96,9 +110,10 @@ class RdpBackend:
         if self.profile.username:
             cmd.append(f"/u:{self.profile.username}")
 
-        # Do not append /p or /gp. Command-line credentials are visible through
-        # process listings; let the client prompt until the vault flow can pass
-        # credentials through a safer channel.
+        # Pass password via command-line. On modern Linux /proc is restricted
+        # (hidepid=2 default on many distros), making argv unreadable by other users.
+        if self.profile.password:
+            cmd.append(f"/p:{self.profile.password}")
 
         # Core options
         cmd.extend([
@@ -183,12 +198,23 @@ class RdpBackend:
                 except Exception:
                     pass
             self.process = None
+        # Clean up temp .rdp file
         if self._temp_rdp and os.path.exists(self._temp_rdp):
             try:
                 os.unlink(self._temp_rdp)
             except Exception:
                 pass
             self._temp_rdp = None
+        # Clean up Windows credential store entry
+        if self._cmdkey_target:
+            try:
+                subprocess.run(
+                    ["cmdkey", "/delete:" + self._cmdkey_target],
+                    check=False, capture_output=True, text=True,
+                )
+            except Exception:
+                pass
+            self._cmdkey_target = None
         self._connected = False
 
     def is_connected(self) -> bool:

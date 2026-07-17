@@ -3067,3 +3067,26 @@ Fix first-run experience: app showed no vault guidance, Unlock Vault dead-ended 
 - `ruff check` passed.
 - Manual test: first run now shows welcome dialog offering vault setup.
 - `_unlock_vault()` gracefully redirects to setup when no vault exists.
+
+---
+
+## 2026-07-17 (Fix RDP auto-connect, password passing, auto-connect for all session types)
+
+### Plan
+Fix three RDP issues: (1) RDP tabs not auto-connecting on double-click, (2) password never passed to mstsc/xfreerdp, (3) other session types (VNC, Telnet, LocalShell) also not auto-connecting.
+
+### Changes
+- `src/openadmindesk/ui/main_window.py`:
+  - `_auto_connect_tab()`: replaced narrow `isinstance(w, SshTerminalTab)` check with duck-typing `hasattr(w, '_connect') and hasattr(w, '_connected')`. Now auto-connects RDP, VNC, Telnet, LocalShell tabs too.
+- `src/openadmindesk/core/rdp_backend.py`:
+  - `__init__()`: added `_cmdkey_target` for Windows credential cleanup.
+  - `_connect_windows()`: stores credentials via `cmdkey /generic:TERMSRV/<host>` before launch; sets `prompt for credentials:i:0` instead of `:1` when password available.
+  - `_build_linux_command()`: passes password via `/p:password` (previously deliberately omitted).
+  - `disconnect()`: cleans up `cmdkey` entry on Windows alongside temp file cleanup.
+- `tests/test_rdp_backend.py`: renamed test to `test_linux_command_includes_password`, now asserts `/p:plain-password` is present.
+
+### Verification
+- `py_compile` passed for both source files.
+- `ruff check` passed.
+- `pytest tests/test_rdp_backend.py` — 5/5 passed.
+- `pytest tests/test_main_window.py` — 23/23 passed.

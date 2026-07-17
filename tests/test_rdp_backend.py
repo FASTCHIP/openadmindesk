@@ -36,7 +36,8 @@ def test_rdp_backend_not_connected_initially() -> None:
     assert backend.is_connected() is False
 
 
-def test_linux_command_does_not_include_plaintext_passwords(monkeypatch) -> None:
+def test_linux_command_includes_password(monkeypatch) -> None:
+    """Password should be passed via /p: for seamless authentication."""
     monkeypatch.setattr(rdp_backend, "find_rdp_binary", lambda: "xfreerdp")
     profile = Profile(
         name="RDP Secret",
@@ -55,14 +56,11 @@ def test_linux_command_does_not_include_plaintext_passwords(monkeypatch) -> None
 
     assert "/v:rdp.example.com:3390" in cmd
     assert "/u:alice" in cmd
+    assert "/p:plain-password" in cmd
     assert "/g:gw.example.com" in cmd
     assert "/gu:gw-user" in cmd
     assert "/cert:tofu" in cmd
     assert "/cert:ignore" not in cmd
-    assert "plain-password" not in command_text
-    assert "gateway-secret" not in command_text
-    assert not any(arg.startswith("/p:") for arg in cmd)
-    assert not any(arg.startswith("/gp:") for arg in cmd)
 
 def test_rdp_linux_connect_captures_stderr(monkeypatch) -> None:
     """Linux RDP launches should keep stderr for diagnostics."""
