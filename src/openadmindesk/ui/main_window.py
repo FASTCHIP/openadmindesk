@@ -12,6 +12,7 @@ try:
 except ImportError:
     from PySide6.QtWidgets import QAction  # PySide6 < 6.11
 from PySide6.QtCore import Qt, QTimer
+import os
 from pathlib import Path
 
 from openadmindesk.ui.activity_rail import ActivityRail
@@ -91,6 +92,22 @@ class MainWindow(QMainWindow):
         self._vault_lock_timer.setInterval(VAULT_POLL_INTERVAL_MS)
         self._vault_lock_timer.timeout.connect(self._poll_vault_lock_state)
         self._vault_lock_timer.start()
+
+        # First-run: prompt to set up vault if none exists
+        QTimer.singleShot(500, self._maybe_prompt_first_vault_setup)
+
+    def _maybe_prompt_first_vault_setup(self) -> None:
+        """If no vault exists, offer to set one up on first run."""
+        if not os.path.exists(self.vault_manager.vault_path):
+            reply = QMessageBox.question(
+                self, "Welcome to OpenAdminDesk",
+                "No vault found. A vault is required to store credentials.\n"
+                "Set up a master password now?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                self._setup_vault()
 
     def _connect_signals(self) -> None:
         """Wire up signals between components."""
@@ -610,6 +627,18 @@ class MainWindow(QMainWindow):
     def _unlock_vault(self) -> None:
         """Unlock vault with master password."""
         if not self.vault_manager.is_unlocked():
+            # Check if vault file exists before prompting for password
+            if not os.path.exists(self.vault_manager.vault_path):
+                reply = QMessageBox.question(
+                    self, "No Vault",
+                    "No vault found. Set up a master password first?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.Yes,
+                )
+                if reply == QMessageBox.Yes:
+                    self._setup_vault()
+                return
+
             password, ok = QInputDialog.getText(
                 self, "Unlock Vault",
                 "Enter master password:",
@@ -622,7 +651,7 @@ class MainWindow(QMainWindow):
                     self._update_vault_menu()
                 else:
                     QMessageBox.critical(self, "Error",
-                        "Wrong password or vault does not exist.")
+                        "Wrong password.")
 
     def _lock_vault(self) -> None:
         """Lock the vault."""

@@ -3046,3 +3046,24 @@ Add Russian-language section to README.md explaining how to download exe, rpm, d
 
 ### Verification
 - Inspected README.md for markdown validity and correct table/link rendering.
+
+---
+
+## 2026-07-17 (Fix first-run vault dead-end)
+
+### Plan
+Fix first-run experience: app showed no vault guidance, Unlock Vault dead-ended with "Wrong password or vault does not exist", Setup Master Password was hidden in menu.
+
+### Changes
+- `src/openadmindesk/ui/main_window.py`:
+  - Added `import os`.
+  - `__init__()`: after vault timer setup, schedule `_maybe_prompt_first_vault_setup()` via `QTimer.singleShot(500, ...)`.
+  - New method `_maybe_prompt_first_vault_setup()`: if vault file doesn't exist, show dialog offering to set up master password, then call `_setup_vault()`.
+  - `_unlock_vault()`: check vault existence before prompting for password; if no vault, offer setup instead of showing confusing error.
+- `src/openadmindesk/ui/tabbed_workspace.py`: welcome tab now lists "Set up vault: Vault → Setup Master Password" as first step.
+
+### Verification
+- `py_compile` passed for both files.
+- `ruff check` passed.
+- Manual test: first run now shows welcome dialog offering vault setup.
+- `_unlock_vault()` gracefully redirects to setup when no vault exists.

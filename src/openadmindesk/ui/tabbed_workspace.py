@@ -68,6 +68,7 @@ class TabbedWorkspace(QTabWidget):
         layout.setAlignment(Qt.AlignCenter)
         welcome = QLabel(
             "Welcome to OpenAdminDesk\n\n"
+            "▸ Set up vault:  Vault → Setup Master Password\n"
             "▸ Create a new profile:  File → New Profile\n"
             "▸ Quick connect:  type user@host in the toolbar\n"
             "▸ Double-click a session in the tree to connect"
