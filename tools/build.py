@@ -423,7 +423,7 @@ if [ -d $RPM_BUILD_ROOT/usr/local/lib ]; then mv $RPM_BUILD_ROOT/usr/local/lib/*
 rm -rf $RPM_BUILD_ROOT/usr/local
 install -D -m 0644 packaging/linux/openadmindesk.desktop $RPM_BUILD_ROOT%{{_datadir}}/applications/openadmindesk.desktop
 install -D -m 0644 packaging/linux/openadmindesk.svg $RPM_BUILD_ROOT%{{_datadir}}/icons/hicolor/scalable/apps/openadmindesk.svg
-find $RPM_BUILD_ROOT -type f -o -type l > %{{_tmppath}}/files.list
+find $RPM_BUILD_ROOT -type f -o -type l | sed "s|^$RPM_BUILD_ROOT||" > %{{_tmppath}}/files.list
 
 %files -f %{{_tmppath}}/files.list
 
