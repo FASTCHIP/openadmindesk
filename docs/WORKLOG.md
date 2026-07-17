@@ -2976,3 +2976,21 @@ This entry outlines the plan for implementing full GitHub automatic builds for d
   * PyYAML `safe_load` syntax parse of `.github/workflows/release.yml` — exit 0;
 - limitations: GitHub Actions YAML parser, Linux package builds in this new workflow, Windows PyInstaller build/smoke, and GitHub Release publishing are NOT verified until workflow is committed/pushed and run; no signing; workflow performs CLI/metadata smoke, not fresh package extraction smoke;
 - no commit/push performed in this implementation pass.
+
+---
+
+## 2026-07-17 (CI dependency install failure / lockfile sync plan)
+- GitHub PR CI run #20 URL https://github.com/FASTCHIP/openadmindesk/actions/runs/29579657617; test 3.13 and security failed at Install dependencies, test 3.12 cancelled, build/docker skipped;
+- read-only local evidence: `python3 -m poetry check --lock` exit 1 after adding optional `build = ["PyInstaller>=6.21,<7"]`; poetry.lock was not updated;
+- exact fix scope: regenerate only poetry.lock with current pyproject, no dependency declaration/CI/workflow/source changes;
+- acceptance: poetry check --lock exit 0, poetry install --with dev --dry-run exit 0, focused release/windows/build tests, Ruff, diff-check, reviewer; then commit/push and inspect new CI run;
+- no claim CI fixed until GitHub run is green; no commit/push in plan pass.
+
+---
+
+## 2026-07-17 (Poetry lockfile synchronization result)
+- changed only poetry.lock besides plan entry; resolved PyInstaller 6.21.0 plus altgraph, pefile/pywin32-ctypes Windows markers, macholib macOS marker, pyinstaller-hooks-contrib 2026.6, setuptools/packaging markers; content hash updated;
+- verification exact: `python3 -m poetry lock --no-interaction` exit 0; `poetry check --lock` exit 0; `poetry install --with dev --dry-run --no-interaction` exit 0; focused release/windows/build tests exit 0; Ruff src/tools/tests exit 0; diff-check clean;
+- root cause closed locally: optional build extra was added without lock regeneration;
+- limitation: CI fix remains unverified until commit/push triggers a new GitHub run; do not claim green;
+- no commit/push in implementation pass.
