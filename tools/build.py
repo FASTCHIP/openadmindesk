@@ -362,6 +362,17 @@ override_dh_auto_install:
     print(f"Debian package created: dist/{deb_files[0].name}")
 
 
+def _python_sitelib() -> str:
+    """Return Python site-packages/dist-packages path relative to /usr."""
+    import sysconfig
+    from pathlib import PurePath
+    purelib = PurePath(sysconfig.get_path("purelib"))
+    try:
+        return str(purelib.relative_to("/usr"))
+    except ValueError:
+        return str(purelib.relative_to(purelib.anchor)) if purelib.is_absolute() else str(purelib)
+
+
 def build_rpm_package():
     """Build RPM package."""
     print("Building RPM package...")
@@ -373,6 +384,7 @@ def build_rpm_package():
         return
 
     version = project_version()
+    python_lib = _python_sitelib()
     source_dir = Path.home() / "rpmbuild" / "SOURCES"
     source_dir.mkdir(parents=True, exist_ok=True)
     source_tarball = Path("dist") / f"openadmindesk-{version}.tar.gz"
@@ -411,13 +423,9 @@ if [ -d $RPM_BUILD_ROOT/usr/local/lib ]; then mv $RPM_BUILD_ROOT/usr/local/lib/*
 rm -rf $RPM_BUILD_ROOT/usr/local
 install -D -m 0644 packaging/linux/openadmindesk.desktop $RPM_BUILD_ROOT%{{_datadir}}/applications/openadmindesk.desktop
 install -D -m 0644 packaging/linux/openadmindesk.svg $RPM_BUILD_ROOT%{{_datadir}}/icons/hicolor/scalable/apps/openadmindesk.svg
+find $RPM_BUILD_ROOT -type f -o -type l > %{{_tmppath}}/files.list
 
-%files
-%{{_bindir}}/openadmindesk
-/usr/lib/python*/dist-packages/openadmindesk
-/usr/lib/python*/dist-packages/openadmindesk-*.dist-info
-%{{_datadir}}/applications/openadmindesk.desktop
-%{{_datadir}}/icons/hicolor/scalable/apps/openadmindesk.svg
+%files -f %{{_tmppath}}/files.list
 
 %changelog
 * {rpm_changelog_date()} OpenAdminDesk Contributors <17078374+FASTCHIP@users.noreply.github.com> - {version}-1
