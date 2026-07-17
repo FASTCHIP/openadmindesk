@@ -3033,3 +3033,16 @@ Create end-user quickstart guide covering first session, connection tree, termin
 
 ### Verification
 - Inspected USER_GUIDE.md for markdown validity, link correctness, and factual accuracy against FEATURE_MATRIX.md.
+
+---
+
+## 2026-07-17 (README: Russian package download instructions)
+
+### Plan
+Add Russian-language section to README.md explaining how to download exe, rpm, deb packages.
+
+### Changes
+- README.md: Added «Как получить пакеты» subsection under Installation with table of formats and brief install commands in Russian.
+
+### Verification
+- Inspected README.md for markdown validity and correct table/link rendering.

@@ -58,6 +58,26 @@ implementation work.
 Available as AppImage, deb, and rpm packages.
 For detailed instructions, see `docs/INSTALL.md`.
 
+### Как получить пакеты (exe, rpm, deb)
+
+Все сборки публикуются на странице [GitHub Releases](https://github.com/FASTCHIP/openadmindesk/releases).
+
+| Формат | Платформа | Файл |
+|--------|-----------|------|
+| **.exe** | Windows (x64) | `OpenAdminDesk-Setup.exe` |
+| **.deb** | Debian / Ubuntu | `openadmindesk_*.deb` |
+| **.rpm** | Fedora / RHEL / Rocky / Alma | `openadmindesk-*.rpm` |
+| **.AppImage** | Любой Linux (x64) | `OpenAdminDesk-x86_64.AppImage` |
+
+**Установка:**
+
+- **Windows** — запустите `.exe` установщик и следуйте инструкциям мастера.
+- **Debian / Ubuntu** — `sudo dpkg -i openadmindesk_*.deb && sudo apt install -f`
+- **Fedora / RHEL** — `sudo dnf install openadmindesk-*.rpm`
+- **AppImage** — `chmod +x OpenAdminDesk-x86_64.AppImage && ./OpenAdminDesk-x86_64.AppImage`
+
+Подробнее: [`docs/INSTALL.md`](docs/INSTALL.md).
+
 ## Repository Map
 
 - `AGENTS.md` - mandatory operating rules for coding agents.
