@@ -267,5 +267,38 @@ Goal: Implement additional security measures after the initial publication.
 Verification:
 
 ```bash
-pytest tests/test_profile_store.py tests/test_vault_manager.py tests/test_profile_editor.py tests/test_session_wizard.py -q
+
+## Phase 10 - Built-in RDP Client (FreeRDP ctypes)
+
+Goal: Replace subprocess-launched system RDP clients (xfreerdp, mstsc.exe) with
+a built-in RDP client that renders inside the application window and works
+across all build variants (AppImage, deb, rpm, exe).
+
+- [x] 10.1 Platform detection: add `find_freerdp_library()` to `platform_utils.py`; define FreeRDP ctypes structs and constants (`rdp_client.py`).
+- [x] 10.2 Core wrapper: implement `RdpClient(QObject)` with connect/disconnect/event loop lifecycle, frame callback, Qt signals (`connected`, `disconnected`, `frame_ready`, `error_occurred`).
+- [x] 10.3 Display widget: implement `RdpDisplay(QWidget)` — QPainter frame rendering, keyboard scancode translation, mouse event forwarding, resize notification.
+- [x] 10.4 Session tab: rewrite `RdpSessionTab` to embed `RdpDisplay` instead of external-process control panel.
+- [ ] 10.5 Certificate TOFU: FreeRDP certificate verify callback → Qt dialog → store thumbprint; match existing SSH host-key TOFU pattern.
+- [ ] 10.6 NLA authentication: pass credentials from Profile/Vault to FreeRDP settings struct; never on command line.
+- [ ] 10.7 Packaging: bundle `libfreerdp-client3.so` for AppImage; add `libfreerdp-client3` dependency for deb/rpm; include DLLs in Windows PyInstaller build.
+- [ ] 10.8 Tests: mock FreeRDP in `test_rdp_client.py`; headless Qt tests for `test_rdp_display.py`; update existing `test_rdp_backend.py` for new backend API.
+- [ ] 10.9 Advanced features: fullscreen toggle, Ctrl-Alt-Del injection, clipboard text sync (FreeRDP clipboard channel).
+- [ ] 10.10 Documentation: update `INSTALL.md` (FreeRDP dep), `USER_GUIDE.md` (RDP section), `SECURITY_MODEL.md` (certificate handling), `DATA_MODEL.md` if needed.
+
+Verification:
+
+```bash
+pytest tests/test_rdp_client.py tests/test_rdp_display.py tests/test_rdp_backend.py -q
+ruff check src/openadmindesk/core/rdp_client.py src/openadmindesk/ui/rdp_display.py src/openadmindesk/core/rdp_backend.py src/openadmindesk/ui/rdp_session_tab.py
 ```
+
+### Phase 10 completion criteria
+- No subprocess calls to `xfreerdp` or `mstsc.exe` remain in RDP code paths
+- RDP session renders inside `RdpSessionTab` as embedded widget
+- Keyboard, mouse, resize work correctly
+- Certificate TOFU dialog appears on first connect to new host
+- NLA authentication uses vault credentials, not command-line arguments
+- All builds include FreeRDP library (bundled or declared dependency)
+- All existing and new RDP tests pass
+- `ruff check` passes on all changed files
+

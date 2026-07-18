@@ -1,4 +1,4 @@
-"""RDP session tab widget."""
+"""RDP session tab widget — embedded FreeRDP display."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QTextEdit,
 )
 from PySide6.QtCore import Qt, Signal
 
-from openadmindesk.core.rdp_backend import RdpBackend
+from openadmindesk.core.rdp_client import RdpClient
 from openadmindesk.core.profile import Profile
+from openadmindesk.ui.rdp_display import RdpDisplay
 from openadmindesk.core.l10n import _
 
 
 class RdpSessionTab(QWidget):
-    """Tab for an RDP remote desktop session.
+    """Tab for an embedded RDP remote desktop session.
 
-    Since xfreerdp opens its own window, this tab acts as a control panel
-    showing connection status and offering connect/disconnect actions.
+    Uses RdpClient (FreeRDP via ctypes) for connection and
+    RdpDisplay for frame rendering and input capture.
     """
 
     tab_closed = Signal()
@@ -29,19 +29,20 @@ class RdpSessionTab(QWidget):
     def __init__(self, profile: Profile) -> None:
         super().__init__()
         self.profile = profile
-        self.backend = RdpBackend(profile)
+        self._client = RdpClient(profile)
         self._connected = False
         self._setup_ui()
+        self._wire_client()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setContentsMargins(0, 4, 0, 0)
 
-        # Header
+        # ── header ────────────────────────────────────────────────────
         header = QLabel(f"🖥  {self.profile.name}")
         header.setAlignment(Qt.AlignCenter)
         header.setStyleSheet(
-            "font-size: 20px; font-weight: bold; color: #cccccc;"
+            "font-size: 18px; font-weight: bold; color: #cccccc; padding: 4px;"
         )
         layout.addWidget(header)
 
@@ -49,57 +50,45 @@ class RdpSessionTab(QWidget):
             f"{self.profile.username}@{self.profile.host}:{self.profile.port}"
         )
         sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet("font-size: 13px; color: #969696;")
+        sub.setStyleSheet("font-size: 12px; color: #969696;")
         layout.addWidget(sub)
 
-        layout.addSpacing(20)
+        # ── toolbar ───────────────────────────────────────────────────
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(8, 4, 8, 4)
 
-        # Status label
-        self.status_label = QLabel(_("● Disconnected"))
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet(
-            "font-size: 15px; color: #e05555; font-weight: bold;"
+        self._status_label = QLabel(_("● Disconnected"))
+        self._status_label.setStyleSheet(
+            "font-size: 13px; color: #e05555; font-weight: bold;"
         )
-        layout.addWidget(self.status_label)
+        toolbar.addWidget(self._status_label)
 
-        layout.addSpacing(16)
+        toolbar.addStretch()
 
-        # Buttons row
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
+        self._connect_button = QPushButton(_("Connect"))
+        self._connect_button.setMinimumWidth(120)
+        self._connect_button.clicked.connect(self._toggle_connection)
+        toolbar.addWidget(self._connect_button)
 
-        self.connect_button = QPushButton(_("Connect"))
-        self.connect_button.setMinimumWidth(140)
-        self.connect_button.clicked.connect(self._toggle_connection)
-        btn_layout.addWidget(self.connect_button)
+        self._cad_button = QPushButton(_("Ctrl+Alt+Del"))
+        self._cad_button.setMinimumWidth(120)
+        self._cad_button.clicked.connect(self._send_cad)
+        self._cad_button.setEnabled(False)
+        toolbar.addWidget(self._cad_button)
 
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        layout.addLayout(toolbar)
 
-        layout.addSpacing(12)
+        # ── RDP display ───────────────────────────────────────────────
+        self._display = RdpDisplay(self._client, self)
+        layout.addWidget(self._display, 1)  # stretch factor 1
 
-        # Info text
-        self.info_text = QTextEdit()
-        self.info_text.setReadOnly(True)
-        self.info_text.setMaximumHeight(80)
-        self.info_text.setPlaceholderText(_("Session information..."))
-        layout.addWidget(self.info_text)
+    def _wire_client(self) -> None:
+        """Connect RdpClient signals to UI updates."""
+        self._client.connected.connect(self._on_connected)
+        self._client.disconnected.connect(self._on_disconnected)
+        self._client.error_occurred.connect(self._on_error)
 
-        # Check availability
-        if not RdpBackend.is_available():
-            self.status_label.setText(_("⚠  xfreerdp not installed"))
-            self.status_label.setStyleSheet(
-                "font-size: 15px; color: #dcaa3a; font-weight: bold;"
-            )
-            self.connect_button.setEnabled(False)
-            self.info_text.setPlainText(
-                "xfreerdp is not installed on this system.\n\n"
-                "Install it:\n"
-                "  Ubuntu:  sudo apt install freerdp2-x11\n"
-                "  Fedora:  sudo dnf install freerdp"
-            )
-
-        layout.addStretch()
+    # ── connection control ────────────────────────────────────────────
 
     def _toggle_connection(self) -> None:
         """Connect or disconnect."""
@@ -110,44 +99,54 @@ class RdpSessionTab(QWidget):
 
     def _connect(self) -> None:
         """Start RDP session."""
-        self.connect_button.setEnabled(False)
-        self.status_label.setText(_("● Launching RDP..."))
-        self.status_label.setStyleSheet(
-            "font-size: 15px; color: #dcaa3a; font-weight: bold;"
+        self._connect_button.setEnabled(False)
+        self._status_label.setText(_("● Connecting..."))
+        self._status_label.setStyleSheet(
+            "font-size: 13px; color: #dcaa3a; font-weight: bold;"
         )
-
-        success = self.backend.connect()
-        if success:
-            self._connected = True
-            self.status_label.setText(_("● Connected (RDP window opened)"))
-            self.status_label.setStyleSheet(
-                "font-size: 15px; color: #4ec94e; font-weight: bold;"
-            )
-            self.connect_button.setText(_("Disconnect"))
-            self.connect_button.setEnabled(True)
-            self.info_text.setPlainText(
-                "RDP session is active. The remote desktop opened in a "
-                "separate window.\n\n"
-                "Close the RDP window to end the session, or click Disconnect."
-            )
-        else:
-            self.status_label.setText(_("● Connection Failed"))
-            self.status_label.setStyleSheet(
-                "font-size: 15px; color: #e05555; font-weight: bold;"
-            )
-            self.connect_button.setEnabled(True)
+        self._client.connect_to_host()
 
     def _disconnect(self) -> None:
         """End RDP session."""
-        self.backend.disconnect()
-        self._connected = False
-        self.status_label.setText(_("● Disconnected"))
-        self.status_label.setStyleSheet(
-            "font-size: 15px; color: #e05555; font-weight: bold;"
+        self._client.disconnect()
+
+    def _send_cad(self) -> None:
+        """Send Ctrl+Alt+Del to the remote session."""
+        if self._connected:
+            self._client.send_ctrl_alt_del()
+
+    # ── RdpClient signal handlers ─────────────────────────────────────
+
+    def _on_connected(self) -> None:
+        self._connected = True
+        self._status_label.setText(_("● Connected"))
+        self._status_label.setStyleSheet(
+            "font-size: 13px; color: #4ec94e; font-weight: bold;"
         )
-        self.connect_button.setText(_("Connect"))
-        self.connect_button.setEnabled(True)
-        self.info_text.setPlainText("")
+        self._connect_button.setText(_("Disconnect"))
+        self._connect_button.setEnabled(True)
+        self._cad_button.setEnabled(True)
+
+    def _on_disconnected(self) -> None:
+        self._connected = False
+        self._status_label.setText(_("● Disconnected"))
+        self._status_label.setStyleSheet(
+            "font-size: 13px; color: #e05555; font-weight: bold;"
+        )
+        self._connect_button.setText(_("Connect"))
+        self._connect_button.setEnabled(True)
+        self._cad_button.setEnabled(False)
+
+    def _on_error(self, message: str) -> None:
+        self._status_label.setText(_("● Error"))
+        self._status_label.setStyleSheet(
+            "font-size: 13px; color: #e05555; font-weight: bold;"
+        )
+        self._status_label.setToolTip(message)
+        self._connect_button.setEnabled(True)
+        self._cad_button.setEnabled(False)
+
+    # ── lifecycle ─────────────────────────────────────────────────────
 
     def closeEvent(self, event) -> None:
         """Clean up on tab close."""

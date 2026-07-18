@@ -2305,6 +2305,7 @@ actions reflect locked state.
 **`tests/test_vault_format.py`:** 25 new tests (30 total):
 - `detect_version` for v1, v2, unknown, None
 - v1 structural validation: missing key_hash/salt/accounts, non-string types,
+
   non-list accounts, missing iv/cipher allowed, optional metadata accepted,
   metadata type rejection
 - v2 structural validation: complete structure, missing fields, wrong version
@@ -2318,6 +2319,7 @@ actions reflect locked state.
 - New v1 has kdf params and timestamps after setup
 - New v1 unlocks with correct password
 - Missing key_hash rejected
+
 - Unknown version (v2) rejected
 - Stored iterations (200000) used successfully
 - Unsafe iterations (< 100000) bounded to default causing unlock failure
@@ -3090,3 +3092,174 @@ Fix three RDP issues: (1) RDP tabs not auto-connecting on double-click, (2) pass
 - `ruff check` passed.
 - `pytest tests/test_rdp_backend.py` — 5/5 passed.
 - `pytest tests/test_main_window.py` — 23/23 passed.
+
+---
+
+## 2026-07-18 (Built-in RDP Client: specification and Phase 10 plan)
+
+### Plan
+
+User requested a built-in RDP client replacing the subprocess-launched system
+clients (xfreerdp/mstsc) for all build variants (exe, deb, rpm, AppImage).
+
+### Technical decision
+
+After analysis of Python RDP libraries (none production-ready), web-based RDP
+(requires gateway server), and window-embedding (still uses system client),
+the chosen approach is **FreeRDP as a shared library wrapped via ctypes**:
+
+- `libfreerdp-client3.so` / `freerdp-client3.dll` — mature C library (Apache 2.0)
+- ctypes wrapper — zero build deps, pure Python
+- Qt worker/signal boundary — matches existing SSH/SFTP pattern
+- QPainter/QImage rendering — matches existing pyte TerminalWidget pattern
+- Bundled with AppImage/Windows exe; system package dep for deb/rpm
+
+### Deliverables this pass
+
+1. `docs/superpowers/specs/2026-07-18-builtin-rdp-client.md` — full specification
+2. `docs/AUDIT_REMEDIATION_PLAN.md` — added Phase 10 with 10 sub-tasks
+3. `docs/WORKLOG.md` — this entry
+
+### Verification
+
+- Inspected specification for completeness, consistency with existing architecture
+- Confirmed Phase 10 tasks are sequential, bounded, and independently testable
+- No code/tests/config changed in this documentation pass
+
+### Next task
+
+Phase 10.1: Add `find_freerdp_library()` to platform_utils, define ctypes structs.
+
+---
+
+## 2026-07-18 (Phase 10.1: Platform detection + FreeRDP ctypes definitions)
+
+### Implementation
+
+1. **`src/openadmindesk/platform/platform_utils.py`**:
+   - Added `find_freerdp_library()` — locates `libfreerdp-client3.so` / `freerdp-client3.dll`
+   - Search order: bundled (../bin/), system (ctypes.util.find_library), known Linux paths
+   - Updated module docstring
+   - `find_rdp_binary()` preserved unchanged
+
+2. **`src/openadmindesk/core/rdp_client.py`** (new, 190 lines):
+   - FreeRDP 3.x constants: error codes, keyboard/mouse flags, certificate results
+   - Opaque struct handles: `rdpContext`, `rdpSettings`, `rdpClientContext`
+   - Callback type definitions: `CERT_VERIFY_CALLBACK`, `FRAME_UPDATE_CALLBACK`, `CLIENT_EVENT_CALLBACK`, `KEYBOARD_EVENT_CALLBACK`, `MOUSE_EVENT_CALLBACK`
+   - `RdpFrameBuffer` struct for decoded pixel buffers
+   - `FreeRdpLibrary` loader class with `load(path)`, `is_loaded`, `lib`, `path` properties
+   - `_resolve_symbol()` helper for type-safe ctypes symbol resolution
+   - Zero Qt/threading dependencies — pure ctypes
+
+### Verification
+
+- `python3 -m py_compile` both files — exit 0
+- Import test: `FreeRdpLibrary`, `RdpFrameBuffer`, constants — exit 0
+- `find_freerdp_library()` importable and executable — exit 0
+- Reviewer: PASS (LOW: unused imports → fixed)
+- Unused imports removed: `c_int`, `c_wchar_p`, `POINTER`, `byref`, `c_size_t`, `ctypes.util`
+
+### Next task
+
+Phase 10.2: Implement `RdpClient` core wrapper (connect/disconnect/event loop, Qt signals)
+
+---
+
+## 2026-07-18 (Phase 10.2: RdpClient core wrapper)
+
+### Implementation
+
+**`src/openadmindesk/core/rdp_client.py`** — extended 190→584 lines:
+
+1. **`RdpClient(QObject)`** — main-thread controller:
+   - Signals: `frame_ready(QImage)`, `connected()`, `disconnected()`, `error_occurred(str)`
+   - `connect_to_host()` — loads FreeRDP library, spawns worker QThread
+   - `disconnect()` — requests graceful stop via `_RdpWorker.request_stop()`
+   - Input forwarding: `send_key_scancode`, `send_mouse_event`, `resize_display`, `send_ctrl_alt_del`
+   - Thread-safe state via `QMutex`/`QMutexLocker`
+
+2. **`_RdpWorker(QObject)`** — dedicated thread worker:
+   - `run()`: resolves FreeRDP symbols, creates context, configures settings, registers callbacks, connects, runs event loop
+   - Settings: host, port, username, password, gateway, certificate policy via named constants
+   - Input queues: `queue.Queue` for thread-safe key/mouse forwarding
+   - Cleanup: `freerdp_stop` → `freerdp_disconnect` → `freerdp_client_context_free`
+   - Frame callback stub (Phase 10.3)
+
+3. **Named constants**: `FREERDP_SETTING_HOST=0`, `FREERDP_SETTING_PORT=1`, `FREERDP_SETTING_USERNAME=2`, `FREERDP_SETTING_PASSWORD=3`, `FREERDP_SETTING_CERT_ACCEPT=32`, `FREERDP_SETTING_GATEWAY_HOST=50`, `FREERDP_SETTING_GATEWAY_USERNAME=51`, `FREERDP_SETTING_GATEWAY_PASSWORD=52`
+
+### Reviewer findings and fixes
+
+- **MEDIUM**: Thread safety — fixed: `list` replaced with `queue.Queue` for input queues
+- **LOW**: Magic numbers — fixed: FreeRDP setting IDs extracted to named constants
+- **LOW**: Frame callback stub — documented with Phase 10.3 todo
+
+### Verification
+
+- `python3 -m py_compile` — exit 0
+- `wc -l` — 584 lines
+- All constants, queue.Queue usage, and stub docstring confirmed via grep
+
+### Next task
+
+Phase 10.3: Implement `RdpDisplay` Qt widget — QPainter frame rendering, keyboard scancode translation, mouse event forwarding, resize notification.
+
+## 2026-07-18 (Phase 10.3: RdpDisplay Qt widget)
+
+### Implementation
+
+**`src/openadmindesk/ui/rdp_display.py`** — new file, 342 lines:
+
+1. **`RdpDisplay(QWidget)`** — renders RDP frames via QPainter:
+   - `_on_frame(QImage)` slot — receives frames from RdpClient, stores and schedules repaint
+   - `paintEvent` — draws scaled QImage centered with aspect ratio, black background, placeholder text when no frame
+   - `resizeEvent` — notifies RdpClient of widget resize, triggers re-scale
+
+2. **Keyboard input** — `keyPressEvent`/`keyReleaseEvent`:
+   - Full Set-1 scancode lookup table for ~80 common keys (letters, digits, F1-F12, arrows, numpad, modifiers)
+   - Fallback to `QKeyEvent.nativeScanCode()` for unmapped keys
+   - Extended scancode flag for navigation/media keys
+
+3. **Mouse input** — `mousePressEvent`/`ReleaseEvent`/`MoveEvent`/`wheelEvent`:
+   - Translates Qt button flags → FreeRDP `PTR_FLAGS_*`
+   - Coordinate mapping: widget coords → scaled image → original frame coords
+   - Wheel delta forwarded with PTR_FLAGS_WHEEL
+
+4. **Client management**:
+   - `set_client(rdp_client)` — lazy attach with signal disconnect/connect
+   - `has_frame` property for UI state queries
+
+### Verification
+
+- `python3 -m py_compile` — exit 0
+- Unused imports removed: `QRect`, `Signal`
+
+### Next task
+
+Phase 10.4: Rewrite `RdpSessionTab` to embed `RdpDisplay` instead of external-process control panel.
+
+## 2026-07-18 (Phase 10.4: RdpSessionTab rewrite)
+
+### Implementation
+
+**`src/openadmindesk/ui/rdp_session_tab.py`** — rewritten 157→157 lines:
+
+- Replaced `RdpBackend` (subprocess xfreerdp/mstsc) with `RdpClient` (embedded FreeRDP via ctypes)
+- Replaced QTextEdit info panel with `RdpDisplay` widget for embedded frame rendering
+- Toolbar: Connect/Disconnect, Ctrl+Alt+Del (injection button)
+- Status label shows connected/disconnected/connecting/error states via RdpClient signals
+- Preserved `tab_closed` Signal, `closeEvent` cleanup, `_connect()` and `_connected` for main_window's `_auto_connect_tab`
+- Removed xfreerdp availability check (no longer uses external client)
+
+### Verification
+
+- `python3 -m py_compile` — exit 0
+- Unused imports removed: `QToolBar`
+
+### Next task
+
+Phase 10.5: Certificate verification UI (TOFU dialog for FreeRDP certificate callback).
+
+
+
+
+

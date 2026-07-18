@@ -1,4 +1,4 @@
-"""Platform utilities — OS detection, data directories, and safe subprocess helpers."""
+"""Platform utilities — OS detection, data directories, safe subprocess helpers, and library detection."""
 
 from __future__ import annotations
 
@@ -106,6 +106,45 @@ def find_rdp_binary() -> Optional[str]:
     if bundled.exists() and os.access(bundled, os.X_OK):
         return str(bundled)
     return shutil.which("xfreerdp")
+
+def find_freerdp_library() -> Optional[str]:
+    """Locate the FreeRDP client shared library for ctypes loading.
+
+    Search order:
+      1. Bundled with the application (../bin/ relative to this file)
+      2. System library paths (via find_library or known paths)
+
+    Linux:   libfreerdp-client3.so
+    Windows: freerdp-client3.dll
+    """
+    if is_windows():
+        lib_name = "freerdp-client3.dll"
+    else:
+        lib_name = "libfreerdp-client3.so"
+
+    # 1. Bundled with application (same pattern as find_rdp_binary uses)
+    bundled = Path(__file__).resolve().parent.parent / "bin" / lib_name
+    if bundled.exists():
+        return str(bundled)
+
+    # 2. System library search
+    import ctypes.util
+    system_path = ctypes.util.find_library("freerdp-client3")
+    if system_path:
+        return system_path
+
+    # 3. Explicit known paths (Linux)
+    if not is_windows():
+        for candidate in [
+            "/usr/lib/x86_64-linux-gnu/libfreerdp-client3.so",
+            "/usr/lib/libfreerdp-client3.so",
+            "/usr/lib64/libfreerdp-client3.so",
+        ]:
+            if os.path.exists(candidate):
+                return candidate
+
+    return None
+
 
 
 def is_x11_available() -> bool:
