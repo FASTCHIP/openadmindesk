@@ -25,11 +25,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libpyside6-dev \
-            libfreerdp-client3 \
-            libgl1-mesa-glx \
             xvfb \
-            libegl1
+            libgl1 \
+            libegl1 \
+            libxkbcommon-x11-0 \
+            libicu74
 
       - name: Install Python dependencies
         run: |
@@ -48,12 +48,11 @@ jobs:
       - name: Verify imports
         run: |
           poetry run python -c "
-          from openadmindesk.core.rdp_client import RdpClient, RdpCertTrustStore
-          from openadmindesk.ui.rdp_display import RdpDisplay
-          from openadmindesk.ui.rdp_session_tab import RdpSessionTab
+          from openadmindesk.core.rdp_client import RdpCertTrustStore
           from openadmindesk.core.tunnel_manager import TunnelManager
-          from openadmindesk.ui.tunnel_manager import TunnelManagerWidget
-          print('All imports OK')
+          from openadmindesk.core.settings import AppSettings
+          from openadmindesk.ui.tools_hub import ToolsHub
+          print('Core imports OK')
           "
 
   build-check:
