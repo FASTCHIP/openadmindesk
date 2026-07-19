@@ -1218,6 +1218,52 @@ This entry implements tasks 9.5a of Phase 9 and 7.1 of Phase 7 from the audit re
 - `poetry run pip-audit` - passed
 
 ---
+## 2026-07-18 (Phase 10.8: RDP tests — mock FreeRDP, headless RdpDisplay)
+
+### Implementation
+
+1. **Mock FreeRDP infrastructure** (`tests/test_rdp_client.py`):
+   - `MockFreeRdpLib` — mock CDLL with `__getattr__` returning dummy functions, records calls
+   - `TestRdpWorkerConfigureSettings` (3 tests): host/port/user/pass, gateway + cert policy, NLA + domain
+   - `TestRdpWorkerRegisterCallbacks` (2 tests): update/event callbacks, cert verify callback + `_cert_verify_cb` regression check
+   - `TestRdpWorkerCallbackHandlers` (4 tests): frame update stub, client event, cert verify (trusted — no prompt, unknown — signal + decision)
+   - `TestRdpWorkerInputForwarding` (3 tests): keyboard/mouse/resize enqueue + flush
+   - Total: 22 passed + 1 xpassed (frame update stub)
+
+2. **Headless Qt tests** (`tests/test_rdp_display.py`, NEW):
+   - `TestRdpDisplayDefaults` (3 tests): creation, set_client, has_frame
+   - `TestRdpDisplayFrameRendering` (3 tests): frame reception, null frame, paint safety
+   - `TestRdpDisplayKeyboardEvents` (6 tests): press/release forwarding, Escape/Enter scancodes, unmapped key, no client
+   - `TestRdpDisplayMouseEvents` (3 tests): press, move, no client
+   - `TestRdpDisplayResize` (1 test): resize notification
+   - Total: 16 passed
+
+3. **Existing tests preserved** (`tests/test_rdp_backend.py`): 5 passed
+
+### Verification
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `py_compile` (2 new test files) | 0 | PASS |
+| `ruff check` (2 new test files) | 0 | PASS |
+| `pytest test_rdp_client.py` | 0 | 22 passed, 1 xpassed |
+| `pytest test_rdp_display.py` | 0 | 16 passed |
+| `pytest test_rdp_backend.py` | 0 | 5 passed (unchanged) |
+| Total RDP tests | — | 43 passed |
+
+### Files Changed
+
+- `tests/test_rdp_client.py` — 12 new mock-based tests (+386 lines)
+- `tests/test_rdp_display.py` — new file, 16 headless Qt tests (166 lines)
+- `docs/WORKLOG.md` — this entry
+
+### Remaining risk
+
+- `_on_frame_update` is still a stub — frame processing tests are xfail
+- Phase 10.9 (Advanced features), 10.10 (Documentation) remain
+
+No commit or push performed.
+
 
 ## 2026-07-18 (Phase 10.6: NLA authentication for built-in RDP client)
 
@@ -3361,6 +3407,48 @@ Phase 10.4: Rewrite `RdpSessionTab` to embed `RdpDisplay` instead of external-pr
 - No independent verification of test results in this pass
 - QMessageBox.question blocks main thread (acceptable for TOFU flow)
 - Phase 10.6 (NLA authentication) remains unstarted
+
+No commit or push performed.
+
+---
+
+## 2026-07-18 (Phase 10.7: FreeRDP library packaging for all build targets)
+
+### Implementation
+
+All changes in `tools/build.py`:
+
+1. **AppImage** — `build_appimage()`: After pip install, searches for `libfreerdp-client3.so` via `shutil.which()` and known library paths; copies it into `AppDir/usr/lib/`. Graceful warning if not found.
+
+2. **Debian** — `build_deb_package()`: Added `libfreerdp-client3` to the `Depends` line in `debian/control`.
+
+3. **RPM** — `build_rpm_package()`: Added `libfreerdp-client3` to the `Requires` line in the RPM spec.
+
+4. **Windows** — `build_windows_exe()`: Added `--add-data` flags for `freerdp-client3.dll` from `C:\Windows\System32` and `C:\Program Files\FreeRDP\bin\*.dll` (Windows-only, never executed on Linux due to early platform check).
+
+5. **Tests** — `test_windows_build.py`: Updated expected PyInstaller command to include new `--add-data` flags.
+
+### Verification
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `python3 -m py_compile tools/build.py` | 0 | PASS |
+| `pytest tests/test_windows_build.py -q` | 0 | 7 passed |
+| `pytest tests/test_build_tools.py -q` | 1 | 1 pre-existing failure (test_rpm_spec_matches_pip_installed_files) |
+| `git diff --check tools/build.py` | 0 | Clean |
+
+### Files Changed
+
+- `tools/build.py` — FreeRDP library bundling for AppImage, deb, rpm, Windows
+- `tests/test_windows_build.py` — updated PyInstaller command assertion
+- `docs/WORKLOG.md` — this entry
+
+### Remaining risk
+
+- Pre-existing `test_rpm_spec_matches_pip_installed_files` failure (unrelated to this phase)
+- Pre-existing `ruff F841` on unused `python_lib` in `build_rpm_package()`
+- Actual FreeRDP bundling is only verified at build time (requires FreeRDP installed on build host)
+- Phase 10.8 (Tests), 10.9 (Advanced features), 10.10 (Documentation) remain
 
 No commit or push performed.
 

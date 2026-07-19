@@ -96,3 +96,173 @@ def test_rdp_client_nla_settings_in_configure() -> None:
     assert FREERDP_SETTING_DOMAIN == 4
     assert isinstance(FREERDP_SETTING_NLA, int)
     assert isinstance(FREERDP_SETTING_DOMAIN, int)
+
+# ---------------------------------------------------------------------------
+# Mock FreeRDP infrastructure for testing worker methods
+# ---------------------------------------------------------------------------
+
+class MockFreeRdpLib:
+    """Mock CDLL that records calls for assertion."""
+    def __init__(self):
+        self.calls = {}
+    def __getattr__(self, name):
+        def dummy(*args, **kwargs):
+            self.calls.setdefault(name, []).append(args)
+            if name == "freerdp_client_context_new":
+                return 98765
+            if name in ("freerdp_connect", "freerdp_disconnect", "freerdp_client_stop"):
+                return 0
+            if name == "freerdp_client_start":
+                return 0
+            if name == "freerdp_client_context_free":
+                return None
+            return 0
+        return dummy
+
+
+class TestRdpWorkerConfigureSettings:
+
+    def test_settings_host_port_user_pass(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="test", host="10.0.0.1", port=3390, username="admin", password="secret", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        worker._configure_settings(123, mock_lib)
+        calls = mock_lib.calls.get("freerdp_settings_set_string", [])
+        set_string_args = [t[2] for t in calls]
+        assert any(b"10.0.0.1" in a for a in set_string_args)
+        assert any(b"admin" in a for a in set_string_args)
+        int_calls = mock_lib.calls.get("freerdp_settings_set_uint32", [])
+        assert int_calls
+
+    def test_settings_nla_and_domain(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="nla", host="nla.example.com", port=3389, session_type=SessionType.RDP, rdp_nla=True, rdp_domain="MYDOMAIN")
+        worker = _RdpWorker(profile, library)
+        worker._configure_settings(789, mock_lib)
+        calls = mock_lib.calls.get("freerdp_settings_set_string", [])
+        set_str = [t[2] for t in calls]
+        assert any(b"MYDOMAIN" in a for a in set_str)
+
+
+class TestRdpWorkerRegisterCallbacks:
+
+    def test_callbacks_registered(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="cb", host="cb.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        worker._register_callbacks(111, mock_lib)
+        update_calls = mock_lib.calls.get("freerdp_client_set_update_callback", [])
+        event_calls = mock_lib.calls.get("freerdp_client_set_event_callback", [])
+        assert len(update_calls) >= 1
+        assert len(event_calls) >= 1
+
+    def test_cert_verify_cb_ref_saved(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="cert", host="cert.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        worker._register_cert_verify_callback(222, mock_lib)
+        cert_calls = mock_lib.calls.get("freerdp_client_set_cert_verify_callback", [])
+        assert len(cert_calls) >= 1
+        assert hasattr(worker, "_cert_verify_cb")
+
+
+class TestRdpWorkerCallbackHandlers:
+
+    def test_client_event_runs(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="ev", host="ev.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        result = worker._on_client_event(0, 0)
+        assert isinstance(result, (int, bool))
+
+    def test_cert_verify_trusted_no_prompt(self, monkeypatch, tmp_path):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary, RdpCertTrustStore
+        from openadmindesk.core.profile import Profile, SessionType
+        trust_path = tmp_path / "rdp_known_certs.json"
+        trust_store = RdpCertTrustStore(trust_path)
+        trust_store.add_trust("trusted.host", "AA:BB:CC", "CN=srv", "CN=ca")
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="cert", host="cert.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        worker._cert_trust_store = trust_store
+        prompts = []
+        worker.certificate_prompt.connect(lambda h, fp, s, i: prompts.append((h, fp)))
+        result = worker._on_cert_verify(b"trusted.host", b"AA:BB:CC", b"CN=srv", b"CN=ca")
+        assert result is True
+        assert len(prompts) == 0
+
+
+class TestRdpWorkerInputForwarding:
+
+    def test_keyboard_enqueue_flush(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="kbd", host="kbd.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        worker._context = 5555
+        worker.enqueue_key(0x1E, True, False)
+        worker._flush_input()
+        key_calls = mock_lib.calls.get("freerdp_input_send_keyboard_event", [])
+        assert len(key_calls) >= 1
+
+    def test_mouse_enqueue_flush(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="mouse", host="mouse.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        worker._context = 6666
+        worker.enqueue_mouse(100, 200, 0x8000, 0)
+        worker._flush_input()
+        mouse_calls = mock_lib.calls.get("freerdp_input_send_mouse_event", [])
+        assert len(mouse_calls) >= 1
+
+    def test_resize_enqueue_flush(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="resize", host="resize.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        worker._context = 7777
+        worker.enqueue_resize(1920, 1080)
+        worker._flush_input()
+        resize_calls = mock_lib.calls.get("freerdp_client_resize_display", [])
+        assert len(resize_calls) >= 1

@@ -232,6 +232,20 @@ def build_appimage():
         wheel_file = wheel_files[0]
         run_command([sys.executable, "-m", "pip", "install", "--target", f"{appdir}/usr", str(wheel_file)])
 
+    # Bundle FreeRDP shared library
+    freerdp_lib = shutil.which("libfreerdp-client3.so") or None
+    if not freerdp_lib:
+        for libdir in ["/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib"]:
+            candidate = Path(libdir) / "libfreerdp-client3.so"
+            if candidate.exists():
+                freerdp_lib = str(candidate)
+                break
+    if freerdp_lib:
+        shutil.copy2(freerdp_lib, f"{appdir}/usr/lib/")
+        print(f"Bundled FreeRDP library: {freerdp_lib}")
+    else:
+        print("WARNING: libfreerdp-client3.so not found; RDP sessions will require system library")
+
     apprun_content = """#!/bin/sh
 HERE=$(dirname "$(readlink -f "$0")")
 export PYTHONPATH="$HERE/usr:$PYTHONPATH"
@@ -281,6 +295,8 @@ def build_windows_exe() -> None:
         "openadmindesk",
         "--copy-metadata",
         "openadmindesk",
+        "--add-data", "C:\\Windows\\System32\\freerdp-client3.dll;.",
+        "--add-data", "C:\\Program Files\\FreeRDP\\bin\\*.dll;.",
         "run.py",
     ])
     artifact = Path("dist/OpenAdminDesk.exe")
@@ -312,7 +328,7 @@ Rules-Requires-Root: no
 
 Package: openadmindesk
 Architecture: all
-Depends: ${python3:Depends}, python3-pyside6, python3-cryptography, python3-argon2-cffi, python3-paramiko, ${misc:Depends}
+Depends: ${python3:Depends}, python3-pyside6, python3-cryptography, python3-argon2-cffi, python3-paramiko, libfreerdp-client3, ${misc:Depends}
 Description: Modern open source Linux remote administration workbench
  OpenAdminDesk is a modern Linux desktop application that makes SSH, SFTP,
  tunnels, credential management, and remote graphical application forwarding
@@ -401,7 +417,7 @@ URL: https://github.com/FASTCHIP/openadmindesk
 Source0: %{{name}}-%{{version}}.tar.gz
 BuildArch: noarch
 
-Requires: python3-pyside6, python3-cryptography, python3-argon2-cffi, python3-paramiko
+Requires: python3-pyside6, python3-cryptography, python3-argon2-cffi, python3-paramiko, libfreerdp-client3
 
 %description
 OpenAdminDesk is a modern Linux desktop application that makes SSH, SFTP,

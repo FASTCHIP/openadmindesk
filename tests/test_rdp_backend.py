@@ -52,7 +52,6 @@ def test_linux_command_includes_password(monkeypatch) -> None:
     )
 
     cmd = RdpBackend(profile)._build_linux_command()
-    command_text = " ".join(cmd)
 
     assert "/v:rdp.example.com:3390" in cmd
     assert "/u:alice" in cmd

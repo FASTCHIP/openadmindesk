@@ -106,6 +106,10 @@ def test_windows_exe_builder_uses_structured_pyinstaller_command(
         "openadmindesk",
         "--copy-metadata",
         "openadmindesk",
+        "--add-data",
+        "C:\\Windows\\System32\\freerdp-client3.dll;.",
+        "--add-data",
+        "C:\\Program Files\\FreeRDP\\bin\\*.dll;.",
         "run.py",
     ]
     assert commands == [expected]
