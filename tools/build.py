@@ -406,7 +406,6 @@ def build_rpm_package():
         return
 
     version = project_version()
-    python_lib = _python_sitelib()
     source_dir = Path.home() / "rpmbuild" / "SOURCES"
     source_dir.mkdir(parents=True, exist_ok=True)
     source_tarball = Path("dist") / f"openadmindesk-{version}.tar.gz"

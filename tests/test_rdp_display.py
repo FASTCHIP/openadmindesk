@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import Qt, QSize, QPoint, QObject, Signal
+from PySide6.QtCore import Qt, QSize, QPointF, QObject, Signal
 from PySide6.QtGui import QImage, QKeyEvent, QMouseEvent
 
 from openadmindesk.ui.rdp_display import RdpDisplay
@@ -169,7 +169,7 @@ class TestRdpDisplayMouseEvents:
         display.resize(800, 600)
         
         event = QMouseEvent(
-            QMouseEvent.MouseButtonPress, QPoint(100, 150), Qt.LeftButton,
+            QMouseEvent.MouseButtonPress, QPointF(100, 150), QPointF(100, 150), Qt.LeftButton,
             Qt.LeftButton, Qt.NoModifier
         )
         display.mousePressEvent(event)
@@ -184,7 +184,7 @@ class TestRdpDisplayMouseEvents:
         display.resize(800, 600)
         
         event = QMouseEvent(
-            QMouseEvent.MouseMove, QPoint(200, 300), Qt.NoButton,
+            QMouseEvent.MouseMove, QPointF(200, 300), QPointF(200, 300), Qt.NoButton,
             Qt.NoButton, Qt.NoModifier
         )
         display.mouseMoveEvent(event)
@@ -196,7 +196,7 @@ class TestRdpDisplayMouseEvents:
         display = RdpDisplay()
         display.resize(800, 600)
         event = QMouseEvent(
-            QMouseEvent.MouseButtonPress, QPoint(100, 150), Qt.LeftButton,
+            QMouseEvent.MouseButtonPress, QPointF(100, 150), QPointF(100, 150), Qt.LeftButton,
             Qt.LeftButton, Qt.NoModifier
         )
         display.mousePressEvent(event)

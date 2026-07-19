@@ -80,7 +80,7 @@ class RdpCertTrustStore:
     def add_trust(self, host, fingerprint, subject="", issuer=""):
         import datetime
         with self._lock:
-            self._certs[host] = {"thumbprint": fingerprint, "subject": subject, "issuer": issuer, "first_seen": datetime.datetime.utcnow().isoformat() + "Z"}
+            self._certs[host] = {"thumbprint": fingerprint, "subject": subject, "issuer": issuer, "first_seen": datetime.datetime.now(datetime.timezone.utc).isoformat()}
             self._save()
     def remove_trust(self, host):
         with self._lock:
