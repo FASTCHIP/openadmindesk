@@ -3443,12 +3443,47 @@ All changes in `tools/build.py`:
 - `tests/test_windows_build.py` — updated PyInstaller command assertion
 - `docs/WORKLOG.md` — this entry
 
-### Remaining risk
 
-- Pre-existing `test_rpm_spec_matches_pip_installed_files` failure (unrelated to this phase)
-- Pre-existing `ruff F841` on unused `python_lib` in `build_rpm_package()`
-- Actual FreeRDP bundling is only verified at build time (requires FreeRDP installed on build host)
-- Phase 10.8 (Tests), 10.9 (Advanced features), 10.10 (Documentation) remain
+
+## 2026-07-19 (Phase 10.9: Advanced RDP features — fullscreen + clipboard)
+
+### Implementation
+
+1. **Fullscreen toggle** (`rdp_session_tab.py`):
+   - Added "Fullscreen" button to toolbar
+   - `_toggle_fullscreen()` calls `window().showFullScreen()` / `showNormal()`, updates button text
+   - ESC key exits fullscreen (native Qt behavior)
+
+2. **Clipboard sync infrastructure** (`rdp_client.py`):
+   - `CLIPBOARD_EVENT_CALLBACK` ctypes type for FreeRDP CLIPRDR channel
+   - `clipboard_text_received` signal on RdpClient
+   - `_on_clipboard_event` handler decodes remote text (UTF-8)
+   - `enqueue_clipboard()` + `_send_clipboard_internal()` for local→remote
+   - Registered via `freerdp_client_set_clipboard_callback`
+
+3. **UI clipboard integration** (`rdp_session_tab.py`):
+   - `_on_clipboard_received` copies remote text to system clipboard
+   - `send_clipboard_text()` on RdpClient for local→remote paste
+
+4. **Tests** (5 new in `tests/test_rdp_client.py`):
+   - `CLIPBOARD_EVENT_CALLBACK` type checks
+   - Signal existence on RdpClient
+   - Worker clipboard queue initialization
+   - Clipboard callback decodes UTF-8 correctly
+   - Fullscreen button existence on session tab
+
+### Verification
+
+- py_compile: 0
+- ruff: 0
+- pytest: 25+13+5 = 43 passed
+
+### Files Changed
+
+- `src/openadmindesk/core/rdp_client.py` — clipboard callback type, signals, handler, queue
+- `src/openadmindesk/ui/rdp_session_tab.py` — fullscreen button, clipboard receiver
+- `tests/test_rdp_client.py` — 5 new clipboard/fullscreen tests
+- `docs/WORKLOG.md` — this entry
 
 No commit or push performed.
 

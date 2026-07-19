@@ -194,6 +194,15 @@ MOUSE_EVENT_CALLBACK = CFUNCTYPE(
     c_uint16,   # y
 )
 
+# Clipboard event callback from FreeRDP CLIPRDR channel
+CLIPBOARD_EVENT_CALLBACK = CFUNCTYPE(
+    c_bool,
+    c_void_p,
+    c_uint32,
+    c_void_p,
+    c_uint32,
+)
+
 # ---------------------------------------------------------------------------
 # Frame buffer info struct
 # ---------------------------------------------------------------------------
@@ -273,6 +282,7 @@ class RdpClient(QObject):
     disconnected = Signal()
     error_occurred = Signal(str)
     certificate_prompt = Signal(str, str, str, str)
+    clipboard_text_received = Signal(str)
  
     def __init__(self, profile=None, parent=None):
 
@@ -360,6 +370,10 @@ class RdpClient(QObject):
     def set_certificate_decision(self, accepted):
         if self._worker is not None:
             self._worker.set_certificate_decision(accepted)
+
+    def send_clipboard_text(self, text: str) -> None:
+        if self._worker is not None:
+            self._worker.enqueue_clipboard(text)
  
     @Slot(QImage)
 
@@ -403,6 +417,7 @@ class _RdpWorker(QObject):
     error_occurred = Signal(str)
     finished = Signal()
     certificate_prompt = Signal(str, str, str, str)
+    clipboard_received = Signal(str)
  
     def __init__(self, profile, library, parent=None):
 
@@ -415,6 +430,7 @@ class _RdpWorker(QObject):
         self._resize_requested = None
         self._ctrl_alt_del_requested = False
         self._context = None
+        self._clipboard_queue = queue.Queue()
         self._cert_trust_store = RdpCertTrustStore()
         self._cert_event = threading.Event()
         self._cert_accepted = False
@@ -532,6 +548,10 @@ class _RdpWorker(QObject):
             self._ctrl_alt_del_requested = False
             self._send_ctrl_alt_del_internal()
 
+        while not self._clipboard_queue.empty():
+            text = self._clipboard_queue.get_nowait()
+            self._send_clipboard_internal(text)
+
     def _send_key_internal(self, scancode, pressed, extended):
         ctx = self._context
         lib = self._library.lib
@@ -585,6 +605,21 @@ class _RdpWorker(QObject):
             self._send_key_internal(sc, True, ext)
         for sc, ext in [(0x53, True), (0x38, False), (0x1D, False)]:
             self._send_key_internal(sc, False, ext)
+
+    def _send_clipboard_internal(self, text: str) -> None:
+        ctx = self._context
+        lib = self._library.lib
+        if ctx is None or lib is None or not text:
+            return
+        encoded = text.encode("utf-8")
+        send_clip = _resolve_symbol(lib, "freerdp_client_set_clipboard_data",
+                                    restype=None,
+                                    argtypes=[ctypes.c_void_p, c_uint32, c_char_p, c_uint32])
+        if send_clip is not None:
+            try:
+                send_clip(ctx, 1, encoded, len(encoded))
+            except Exception:
+                pass
 
     def _configure_settings(self, ctx, lib):
         profile = self._profile
@@ -642,6 +677,13 @@ class _RdpWorker(QObject):
         if set_event is not None:
             set_event(ctx, event_cb)
 
+        clip_cb = CLIPBOARD_EVENT_CALLBACK(self._on_clipboard_event)
+        set_clip = _resolve_symbol(lib, "freerdp_client_set_clipboard_callback",
+                                   restype=None,
+                                   argtypes=[ctypes.c_void_p, CLIPBOARD_EVENT_CALLBACK])
+        if set_clip is not None:
+            set_clip(ctx, clip_cb)
+
     def _on_frame_update(self, context_ptr):
         """FreeRDP frame update callback — stub (Phase 10.3 will add QImage emission)."""
         try:
@@ -656,6 +698,18 @@ class _RdpWorker(QObject):
             return 0
         except Exception:
             return -1
+
+    def _on_clipboard_event(self, context_ptr, format_id, data_ptr, data_size):
+        try:
+            if data_ptr and data_size > 0:
+                text = ctypes.string_at(data_ptr, data_size).decode("utf-8", errors="replace")
+                self.clipboard_received.emit(text)
+            return True
+        except Exception:
+            return False
+
+    def enqueue_clipboard(self, text: str) -> None:
+        self._clipboard_queue.put(text)
  
     def set_certificate_decision(self, accepted):
         self._cert_accepted = accepted

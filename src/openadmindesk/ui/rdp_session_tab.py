@@ -76,6 +76,11 @@ class RdpSessionTab(QWidget):
         self._cad_button.setEnabled(False)
         toolbar.addWidget(self._cad_button)
 
+        self._fullscreen_button = QPushButton(_("Fullscreen"))
+        self._fullscreen_button.setMinimumWidth(120)
+        self._fullscreen_button.clicked.connect(self._toggle_fullscreen)
+        toolbar.addWidget(self._fullscreen_button)
+
         layout.addLayout(toolbar)
 
         # ── RDP display ───────────────────────────────────────────────
@@ -88,6 +93,7 @@ class RdpSessionTab(QWidget):
         self._client.disconnected.connect(self._on_disconnected)
         self._client.error_occurred.connect(self._on_error)
         self._client.certificate_prompt.connect(self._on_certificate_prompt)
+        self._client.clipboard_text_received.connect(self._on_clipboard_received)
 
     # ── connection control ────────────────────────────────────────────
 
@@ -172,3 +178,16 @@ class RdpSessionTab(QWidget):
             self._disconnect()
         self.tab_closed.emit()
         event.accept()
+
+    def _toggle_fullscreen(self) -> None:
+        win = self.window()
+        if win.isFullScreen():
+            win.showNormal()
+            self._fullscreen_button.setText(_("Fullscreen"))
+        else:
+            win.showFullScreen()
+            self._fullscreen_button.setText(_("Window"))
+
+    def _on_clipboard_received(self, text: str) -> None:
+        from PySide6.QtWidgets import QApplication
+        QApplication.clipboard().setText(text)

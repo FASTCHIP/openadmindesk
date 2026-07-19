@@ -266,3 +266,57 @@ class TestRdpWorkerInputForwarding:
         worker._flush_input()
         resize_calls = mock_lib.calls.get("freerdp_client_resize_display", [])
         assert len(resize_calls) >= 1
+
+
+class TestRdpClipboardInfrastructure:
+
+    def test_clipboard_callback_type_exists(self):
+        from openadmindesk.core.rdp_client import CLIPBOARD_EVENT_CALLBACK
+        assert isinstance(CLIPBOARD_EVENT_CALLBACK, type)
+
+    def test_clipboard_signal_exists_on_client(self):
+        from openadmindesk.core.rdp_client import RdpClient
+        client = RdpClient()
+        assert hasattr(client, "clipboard_text_received")
+
+    def test_worker_has_clipboard_queue(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="clip", host="clip.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        assert hasattr(worker, "_clipboard_queue")
+        assert hasattr(worker, "clipboard_received")
+
+    def test_worker_clipboard_callback_runs(self, monkeypatch):
+        from openadmindesk.core.rdp_client import _RdpWorker, FreeRdpLibrary
+        from openadmindesk.core.profile import Profile, SessionType
+        mock_lib = MockFreeRdpLib()
+        library = FreeRdpLibrary()
+        monkeypatch.setattr(library, "_lib", mock_lib, raising=False)
+        monkeypatch.setattr(type(library), "lib", property(lambda s: mock_lib), raising=False)
+        profile = Profile(name="cb", host="cb.example.com", session_type=SessionType.RDP)
+        worker = _RdpWorker(profile, library)
+        received = []
+        worker.clipboard_received.connect(lambda t: received.append(t))
+        import ctypes
+        data = ctypes.create_string_buffer(b"hello from remote")
+        result = worker._on_clipboard_event(0, 0, ctypes.cast(data, ctypes.c_void_p), 17)
+        assert result is True
+        assert len(received) == 1
+        assert received[0] == "hello from remote"
+
+    def test_fullscreen_toggle_on_session_tab(self):
+        from PySide6.QtWidgets import QApplication
+        import sys
+        if not QApplication.instance():
+            QApplication(sys.argv)
+        from openadmindesk.ui.rdp_session_tab import RdpSessionTab
+        from openadmindesk.core.profile import Profile, SessionType
+        profile = Profile(name="fs", host="fs.example.com", session_type=SessionType.RDP)
+        tab = RdpSessionTab(profile)
+        assert hasattr(tab, "_fullscreen_button")
+        assert tab._fullscreen_button.text() in ("Fullscreen", "Window")

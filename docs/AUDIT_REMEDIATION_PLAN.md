@@ -282,7 +282,7 @@ across all build variants (AppImage, deb, rpm, exe).
 - [x] 10.6 NLA authentication: pass credentials from Profile/Vault to FreeRDP settings struct; never on command line.
 - [x] 10.7 Packaging: bundle `libfreerdp-client3.so` for AppImage; add `libfreerdp-client3` dependency for deb/rpm; include DLLs in Windows PyInstaller build.
 - [x] 10.8 Tests: mock FreeRDP in `test_rdp_client.py`; headless Qt tests for `test_rdp_display.py`; update existing `test_rdp_backend.py` for new backend API.
-- [ ] 10.9 Advanced features: fullscreen toggle, Ctrl-Alt-Del injection, clipboard text sync (FreeRDP clipboard channel).
+- [x] 10.9 Advanced features: fullscreen toggle, Ctrl-Alt-Del injection, clipboard text sync (FreeRDP clipboard channel).
 - [ ] 10.10 Documentation: update `INSTALL.md` (FreeRDP dep), `USER_GUIDE.md` (RDP section), `SECURITY_MODEL.md` (certificate handling), `DATA_MODEL.md` if needed.
 
 Verification:
