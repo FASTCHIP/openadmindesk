@@ -19,8 +19,8 @@ def test_activity_rail_initialization():
     assert rail is not None
     assert rail.minimumWidth() == 280
     assert rail.maximumWidth() == 350
-    assert list(rail.mode_buttons) == ["sessions"]
-    assert list(rail.mode_widgets) == ["sessions"]
+    assert list(rail.mode_buttons) == ["sessions", "tunnels", "tools"]
+    assert list(rail.mode_widgets) == ["sessions", "tunnels", "tools"]
 
 
 def test_activity_rail_modes():

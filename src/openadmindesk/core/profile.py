@@ -62,6 +62,7 @@ class Profile:
     vnc_scaling: bool = False
     vnc_view_only: bool = False
     vnc_color_depth: int = 24                   # 8, 16, 24, 32
+    vnc_encoding: str = "tight"                   # tight, zrle, hextile, raw
     
     # Metadata
     created_at: Optional[str] = None

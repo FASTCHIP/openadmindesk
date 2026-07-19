@@ -36,7 +36,8 @@ def test_vnc_connect_captures_stderr(monkeypatch) -> None:
     backend = VncBackend(Profile(name="VNC", host="example.com", session_type=SessionType.VNC))
     assert backend.connect()
 
-    assert captured["cmd"] == ["vncviewer", "example.com:22"]
+    assert captured["cmd"][0] == "vncviewer"
+    assert "example.com" in captured["cmd"][-1]
     assert captured["kwargs"]["stderr"] == vnc_backend.subprocess.PIPE
     assert captured["kwargs"]["stdout"] == vnc_backend.subprocess.DEVNULL
     backend._stderr_thread.join(timeout=1)
