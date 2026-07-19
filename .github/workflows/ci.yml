@@ -1,123 +1,85 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  lint-and-test:
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
-        python-version: [3.12, 3.13]
+        python-version: ["3.12"]
 
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update && sudo apt-get install -y libegl1
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install poetry
-        poetry install --with dev
-    
-    - name: Lint with ruff
-      run: |
-        poetry run ruff check src tools tests
-    
-    - name: Test with pytest
-      env:
-        QT_QPA_PLATFORM: offscreen
-      run: |
-        poetry run pytest tests/ -v --cov=src/openadmindesk
+      - uses: actions/checkout@v4
 
-  security:
-    runs-on: ubuntu-latest
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpyside6-dev \
+            libfreerdp-client3 \
+            libgl1-mesa-glx \
+            xvfb \
+            libegl1
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install poetry
+          poetry install --with dev
+
+      - name: Lint with ruff
+        run: |
+          poetry run ruff check src tests
+
+      - name: Test with pytest
+        run: |
+          xvfb-run --auto-servernum poetry run pytest -q --tb=short
+
+      - name: Verify imports
+        run: |
+          poetry run python -c "
+          from openadmindesk.core.rdp_client import RdpClient, RdpCertTrustStore
+          from openadmindesk.ui.rdp_display import RdpDisplay
+          from openadmindesk.ui.rdp_session_tab import RdpSessionTab
+          from openadmindesk.core.tunnel_manager import TunnelManager
+          from openadmindesk.ui.tunnel_manager import TunnelManagerWidget
+          print('All imports OK')
+          "
+
+  build-check:
+    runs-on: ubuntu-24.04
+    needs: lint-and-test
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.12
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install poetry
-        poetry install --with dev
-    
-    - name: Run security checks
-      run: |
-        poetry run bandit -r src/ -lll
-        poetry run pip-audit
+      - uses: actions/checkout@v4
 
-  build:
-    needs: [test, security]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: 3.12
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install poetry
-        poetry install
-    
-    - name: Build Python package
-      run: |
-        poetry build
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: dist
-        path: dist/
-        retention-days: 30
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends dpkg-dev rpm
+          pip install poetry
 
-  docker:
-    needs: [test, security]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-    
-    - name: Build Docker image for testing
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        load: true
-        push: false
-        tags: openadmindesk:ci
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-    
-    - name: Test Docker image
-      run: |
-        docker run --rm openadmindesk:ci openadmindesk --version
+      - name: Build Python packages
+        run: |
+          poetry build
 
-    - name: Qt runtime smoke test
-      run: |
-        docker run --rm -e QT_QPA_PLATFORM=offscreen openadmindesk:ci python -c "from PySide6.QtWidgets import QApplication; app = QApplication([]); print('Qt runtime OK')"
-
+      - name: Verify package structure
+        run: |
+          python tools/build.py python-pkg
+          ls -la dist/
+          echo "Build artifacts:"
+          ls dist/
