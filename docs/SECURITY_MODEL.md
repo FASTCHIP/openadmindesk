@@ -144,6 +144,20 @@ Unknown server keys are rejected by default and exposed as a pending fingerprint
 
 The application also loads system host keys before its own store, so existing OS-level trust remains valid. It must not use Paramiko `AutoAddPolicy` or silently continue after a missing host-key event.
 
+## RDP Certificate Trust (TOFU)
+
+OpenAdminDesk implements Trust On First Use (TOFU) for the built-in RDP client, matching the SSH host-key trust pattern:
+
+- **First Connect**: When connecting to a new RDP server, the FreeRDP certificate verify callback intercepts the server's X.509 certificate. The user is shown a Qt dialog with the hostname, subject, issuer, and SHA-256 fingerprint. No connection proceeds until the user explicitly trusts the certificate.
+
+- **Trusted Certificate Store**: Accepted fingerprints are stored in `~/.config/openadmindesk/rdp_known_certs.json` with file permissions `0600`. Each entry records the hostname, thumbprint, subject, issuer, and timestamp of first trust.
+
+- **Subsequent Connects**: Previously trusted fingerprints are auto-accepted without prompting. If a server presents a different fingerprint, the user is prompted again (potential MITM detection).
+
+- **Auto-accept Policy**: Only profiles with `rdp_certificate_policy = "auto"` skip certificate verification entirely (insecure, not recommended). The `"warn"` policy shows a warning but allows connection. The default TOFU policy prompts for unknown certificates and rejects mismatches.
+
+- **Implementation**: The certificate callback runs on the FreeRDP worker thread and communicates with the UI via Qt signals and a `threading.Event` with a 30-second timeout. The ctypes callback reference is held as an instance variable to prevent garbage-collection crashes.
+
 ## RDP Gateway Secrets
 
 RDP profiles must not persist `rdp_gateway_password` in SQLite or exported profile files. Gateway credentials are stored as a dedicated vault account and referenced through `Profile.rdp_gateway_credential_id`, separate from the primary `credential_id`. Runtime profile copies may hydrate `rdp_gateway_password` only after the vault is unlocked.

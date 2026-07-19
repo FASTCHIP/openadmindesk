@@ -8,6 +8,7 @@ This guide provides instructions for installing OpenAdminDesk on Linux systems u
 - **AppImage Requirement**: `libfuse2` must be installed for AppImages to run.
 - **SSH Client**: OpenSSH client is recommended (usually pre-installed on most Linux distributions).
 - **Self-Contained**: No additional Python or Qt installation is required; all dependencies are bundled.
+- **RDP Sessions**: The built-in RDP client bundles `libfreerdp-client3` in AppImage and Windows builds. On Debian/RPM installs, the package manager installs `libfreerdp-client3` automatically as a dependency.
 
 ## AppImage Installation
 
@@ -28,8 +29,10 @@ The AppImage is a standalone executable that does not require a formal installat
    ```
 5. **Verify**: Check the version to ensure it runs correctly:
    ```bash
-   ./OpenAdminDesk-x86_64.AppImage --version
-   ```
+    ./OpenAdminDesk-x86_64.AppImage --version
+    ```
+**Note for RDP users**: The AppImage bundles `libfreerdp-client3.so` — no separate FreeRDP installation is required for remote desktop sessions.
+
 
 ## Debian/Ubuntu Installation (.deb)
 
@@ -46,9 +49,11 @@ The AppImage is a standalone executable that does not require a formal installat
    openadmindesk
    ```
 4. **Verify**:
-   ```bash
-   openadmindesk --version
-   ```
+    ```
+    openadmindesk --version
+    ```
+**Note for RDP users**: The package requires `libfreerdp-client3` (installed automatically via apt).
+
 
 ## RPM Installation (Fedora/RHEL/Rocky/Alma) (.rpm)
 
@@ -63,9 +68,11 @@ The AppImage is a standalone executable that does not require a formal installat
    openadmindesk
    ```
 3. **Verify**:
-   ```bash
-   openadmindesk --version
-   ```
+    ```
+    openadmindesk --version
+    ```
+**Note for RDP users**: The package requires `libfreerdp-client3` (installed automatically via dnf/rpm).
+
 
 ## Uninstallation
 

@@ -48,7 +48,12 @@
 - Emergency Stop button (🛑) clears all selections
 
 ## Other Session Types
-- **RDP**: configure gateway, certificate policy, drive/printer/clipboard redirection
+- **RDP**
+  - **Built-in Client**: RDP sessions render inside the application window using the embedded FreeRDP client — no external RDP application required.
+  - **Network Level Authentication (NLA)**: Enabled by default. Enter a Windows domain in the session wizard or profile editor if needed.
+  - **Certificate Trust On First Use (TOFU)**: On first connection, verify the server's SSL certificate fingerprint in the dialog before trusting. Trusted fingerprints are stored in `~/.config/openadmindesk/rdp_known_certs.json`.
+  - **Controls**: Fullscreen toggle (F11 or toolbar button), Ctrl+Alt+Del injection, clipboard sync between local and remote sessions.
+  - **Advanced Options**: Configure TS Gateway, certificate policy (auto/warn/ignore), drive redirection, printer redirection, clipboard redirection, and multi-monitor support in the Session Wizard or Profile Editor.
 - **VNC**: scaling, view-only, color depth
 - **Telnet**: plaintext warning before connecting (legacy compatibility)
 - **Local Shell**: opens local terminal in a tab

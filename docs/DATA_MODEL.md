@@ -77,3 +77,23 @@ connecting through a proxy server.
 ## RDP Gateway Credentials
 
 Profiles may reference two vault accounts: `credential_id` for the primary session login and `rdp_gateway_credential_id` for TS Gateway authentication. The gateway account uses `service_type="rdp-gateway"` and stores the gateway username/password in the encrypted vault. Profile rows keep gateway host/user metadata and always clear `rdp_gateway_password` before persistence/export.
+
+## RDP Certificate Trust Store
+
+Trusted RDP server certificate fingerprints are stored in `~/.config/openadmindesk/rdp_known_certs.json` with permissions `0600`. Each entry maps a hostname to:
+
+- `thumbprint` (str): SHA-256 fingerprint of the server's X.509 certificate
+- `subject` (str): Certificate subject DN
+- `issuer` (str): Certificate issuer DN
+- `first_seen` (str): ISO-8601 UTC timestamp of first trust
+
+The trust store is thread-safe (uses `threading.Lock`) and validates fingerprints case-sensitively.
+
+## RDP NLA and Domain Fields
+
+Profile fields added for built-in RDP NLA support:
+
+- `rdp_nla` (bool, default `True`): Enable Network Level Authentication. When disabled, RDP falls back to standard RDP security.
+- `rdp_domain` (str, default `""`): Windows domain name for NLA authentication. Used only when `rdp_nla` is enabled.
+
+Both fields are stored as SQLite columns (`rdp_nla BOOLEAN DEFAULT 1`, `rdp_domain TEXT DEFAULT ''`) with auto-migration on first access.
