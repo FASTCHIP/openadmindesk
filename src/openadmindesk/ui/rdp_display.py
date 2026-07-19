@@ -277,7 +277,7 @@ class RdpDisplay(QWidget):
             return
 
         from openadmindesk.core.rdp_client import (
-            PTR_FLAGS_WHEEL, PTR_FLAGS_WHEEL_NEGATIVE, PTR_FLAGS_MOVE,
+            PTR_FLAGS_WHEEL, PTR_FLAGS_WHEEL_NEGATIVE,
         )
 
         delta = event.angleDelta().y()
