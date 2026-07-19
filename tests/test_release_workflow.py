@@ -40,7 +40,7 @@ def test_windows_release_job_builds_and_smokes_preview() -> None:
     assert "$process.ExitCode" in text
     assert "OpenAdminDesk-$env:VERSION-windows-x86_64.exe" in text
     assert "SHA256SUMS-windows" in text
-    assert "actions/upload-artifact@v4" in text
+    assert "actions/upload-artifact@v7" in text
     assert "retention-days: 14" in text
     assert "$LASTEXITCODE" not in text
     assert "NoNewWindow" not in text
@@ -84,7 +84,7 @@ def test_tag_release_job_merges_and_publishes_assets() -> None:
     assert "needs: [metadata, windows, linux]" in text
     assert "if: startsWith(github.ref, 'refs/tags/v')" in text
     assert "contents: write" in text
-    assert "actions/download-artifact@v4" in text
+    assert "actions/download-artifact@v8" in text
     assert 'pattern: "*-${{ needs.metadata.outputs.version }}"' in text
     assert "merge-multiple: true" in text
     assert "rm -f release-dist/SHA256SUMS-linux release-dist/SHA256SUMS-windows" in text
@@ -107,9 +107,9 @@ def test_release_workflow_has_expected_job_and_action_counts() -> None:
     text = _workflow_text()
 
     assert text.count("runs-on:") == 4
-    assert text.count("actions/checkout@v4") == 4
-    assert text.count("actions/upload-artifact@v4") == 2
-    assert text.count("actions/download-artifact@v4") == 1
+    assert text.count("actions/checkout@v7") == 4
+    assert text.count("actions/upload-artifact@v7") == 2
+    assert text.count("actions/download-artifact@v8") == 1
     for job in ("metadata", "windows", "linux", "release"):
         assert text.count(f"  {job}:\n") == 1
 
