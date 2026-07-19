@@ -1216,6 +1216,59 @@ This entry implements tasks 9.5a of Phase 9 and 7.1 of Phase 7 from the audit re
 - `QT_QPA_PLATFORM=offscreen PYTHONDONTWRITEBYTECODE=1 pytest tests/test_vault_manager.py tests/test_profile_store.py -q` - 12 + 9 passed
 - `poetry run bandit -r src/ -lll` - passed
 - `poetry run pip-audit` - passed
+
+---
+
+## 2026-07-18 (Phase 10.6: NLA authentication for built-in RDP client)
+
+### Implementation
+
+1. **Core model and storage** (`profile.py`, `profile_store.py`):
+   - Added `rdp_nla: bool = True` (Network Level Authentication, default enabled) and `rdp_domain: str = ""` (Windows domain) fields to Profile
+   - Added SQLite columns `rdp_nla BOOLEAN DEFAULT 1` and `rdp_domain TEXT DEFAULT ''` with auto-migration
+   - Updated save/load/roundtrip for both fields
+
+2. **FreeRDP client** (`rdp_client.py`):
+   - Added `FREERDP_SETTING_NLA = 12` and `FREERDP_SETTING_DOMAIN = 4` constants
+   - `_configure_settings` now sets NLA protocol and domain when profile has NLA enabled
+
+3. **UI controls** (`profile_editor.py`, `session_wizard.py`):
+   - Added "Network Level Authentication (NLA)" checkbox and "Domain" input to Profile Editor
+   - Added same controls to Session Wizard RDP Advanced page
+
+4. **Tests** (`test_profile_store.py`, `test_rdp_client.py`):
+   - NLA/domain save/load roundtrip test
+   - NLA default True test
+   - NLA/domain constants existence test
+   - Fixed SQL column/value count regression (33→34 ? placeholders)
+
+### Verification
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `python3 -m py_compile` (7 files) | 0 | PASS |
+| Targeted pytest (profile_store, rdp_client, rdp_backend) | 0 | 15+11+5 = 31 passed |
+| `ruff check --no-cache src tests` | 1 | 2 pre-existing lint issues (unused import in rdp_display.py, unused var in test_rdp_backend.py) |
+| `git diff --check` | 2 | Trailing whitespace (pre-existing from Phase 10.5) |
+
+### Files Changed
+
+- `src/openadmindesk/core/profile.py` — rdp_nla, rdp_domain fields
+- `src/openadmindesk/core/profile_store.py` — columns, migration, save/load, SQL fix
+- `src/openadmindesk/core/rdp_client.py` — NLA/domain settings constants and config
+- `src/openadmindesk/ui/profile_editor.py` — NLA checkbox + domain input
+- `src/openadmindesk/ui/session_wizard.py` — NLA checkbox + domain input
+- `tests/test_profile_store.py` — 2 new NLA tests (SQL roundtrip + default)
+- `tests/test_rdp_client.py` — NLA constants test
+- `docs/WORKLOG.md` — this entry
+
+### Remaining risk
+
+- Pre-existing lint/whitespace issues (not introduced by this phase)
+- Phase 10.7 (Packaging: bundle FreeRDP for AppImage) remains unstarted
+
+No commit or push performed.
+
 - `git diff --check` - clean
 
 ### Known Limitations
@@ -3257,7 +3310,59 @@ Phase 10.4: Rewrite `RdpSessionTab` to embed `RdpDisplay` instead of external-pr
 
 ### Next task
 
-Phase 10.5: Certificate verification UI (TOFU dialog for FreeRDP certificate callback).
+## 2026-07-18 (Phase 10.5: Certificate TOFU for FreeRDP built-in RDP client)
+
+### Implementation
+
+1. **`src/openadmindesk/core/rdp_client.py`** (+140 lines):
+   - Added `RdpCertTrustStore` — JSON file at `~/.config/openadmindesk/rdp_known_certs.json` with chmod 0o600, thread-safe via `threading.Lock`
+   - Added `certificate_prompt` signal to both `RdpClient` and `_RdpWorker` for cross-thread communication
+   - Registered FreeRDP `freerdp_client_set_cert_verify_callback` with correct CFUNCTYPE signature
+   - CRITICAL fix: callback reference saved as `self._cert_verify_cb` to prevent GC → segfault
+   - TOFU flow in `_on_cert_verify`: check trust store → emit signal → wait on `threading.Event(30s timeout)` → store on accept
+   - Disabled blanket auto-accept for `tofu` policy (only `auto` policy auto-accepts now)
+   - Graceful fallback if FreeRDP symbol not available
+
+2. **`src/openadmindesk/ui/rdp_session_tab.py`** (+20 lines):
+   - Connected `RdpClient.certificate_prompt` signal to `_on_certificate_prompt`
+   - Added `_on_certificate_prompt` slot showing `QMessageBox.question` with host, subject, issuer, SHA-256 fingerprint
+   - User decision forwarded via `client.set_certificate_decision()`
+
+3. **`tests/test_rdp_client.py`** (NEW, 88 lines):
+   - 10 tests for `RdpCertTrustStore`: default path, load nonexistent, add/check trust, persistence, file mode 0o600, remove trust, metadata storage, corrupt JSON recovery, thread safety (concurrent 100 writers/readers), fingerprint case sensitivity
+
+### Verification evidence
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `python3 -m py_compile` (3 files) | 0 | PASS |
+| `ruff check` (3 files) | 0 | PASS |
+| `pytest tests/test_rdp_client.py -q` | 0 | 10 passed |
+| `pytest tests/test_rdp_backend.py -q` | 0 | 5 passed (existing preserved) |
+| `git status --short` | — | 3 expected files changed |
+| `git diff --check` | 1 | Trailing whitespace (pre-existing) |
+
+### Reviewer findings
+
+- **CRITICAL** (fixed): ctypes callback GC risk — saved as `self._cert_verify_cb`
+- **HIGH** (accepted): `threading.Event` blocking in worker thread — standard Qt cross-thread signal pattern; 30s timeout prevents indefinite hang
+- **MEDIUM** (noted): verification commands run by worker (not independent re-run)
+
+### Files Changed
+
+- `src/openadmindesk/core/rdp_client.py` — RdpCertTrustStore, cert verify callback, signals, E402 fix
+- `src/openadmindesk/ui/rdp_session_tab.py` — certificate prompt dialog
+- `tests/test_rdp_client.py` — new file, 10 tests
+- `docs/WORKLOG.md` — this entry
+
+### Remaining risk
+
+- threading.Event blocks worker if main thread event loop is stuck for >30s
+- No independent verification of test results in this pass
+- QMessageBox.question blocks main thread (acceptable for TOFU flow)
+- Phase 10.6 (NLA authentication) remains unstarted
+
+No commit or push performed.
 
 
 

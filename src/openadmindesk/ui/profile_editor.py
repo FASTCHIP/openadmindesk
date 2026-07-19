@@ -165,6 +165,8 @@ class ProfileEditor(QWidget):
                     else profile.rdp_gateway_password
                 )
                 profile.rdp_gateway_password = gateway_password
+            profile.rdp_nla = self.rdp_nla_check.isChecked()
+            profile.rdp_domain = self.rdp_domain_input.text().strip()
         else:
             profile.rdp_multimon = False
             profile.rdp_drive_redirection = False
@@ -174,6 +176,8 @@ class ProfileEditor(QWidget):
             profile.rdp_gateway_username = None
             profile.rdp_gateway_password = None
             profile.rdp_gateway_credential_id = None
+            profile.rdp_nla = True
+            profile.rdp_domain = ""
 
         profile.notes = self.notes_input.toPlainText().strip()
 
@@ -316,11 +320,21 @@ class ProfileEditor(QWidget):
         self.rdp_gateway_pass_input.setPlaceholderText("Optional")
         form_layout.addRow(_("Gateway Pass:"), self.rdp_gateway_pass_input)
 
+        self.rdp_nla_check = QCheckBox(_("Network Level Authentication (NLA)"))
+        self.rdp_nla_check.setChecked(True)
+        form_layout.addRow("", self.rdp_nla_check)
+
+        self.rdp_domain_input = QLineEdit()
+        self.rdp_domain_input.setPlaceholderText("DOMAIN")
+        form_layout.addRow(_("Domain:"), self.rdp_domain_input)
+
         self._rdp_widgets = [
             self.rdp_multimon_check,
             self.rdp_drive_check,
             self.rdp_drive_path_input,
             self.rdp_printer_check,
+            self.rdp_nla_check,
+            self.rdp_domain_input,
             self.rdp_gateway_input,
             self.rdp_gateway_account_selector,
             self.rdp_gateway_user_input,
@@ -495,6 +509,8 @@ class ProfileEditor(QWidget):
         self.rdp_gateway_input.setText(self.profile.rdp_gateway or "")
         self.rdp_gateway_user_input.setText(self.profile.rdp_gateway_username or "")
         self.rdp_gateway_pass_input.clear()
+        self.rdp_nla_check.setChecked(bool(getattr(self.profile, "rdp_nla", True)))
+        self.rdp_domain_input.setText(getattr(self.profile, "rdp_domain", "") or "")
         self.notes_input.setPlainText(self.profile.notes or "")
 
         # Set session type

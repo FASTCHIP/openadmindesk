@@ -55,6 +55,8 @@ class Profile:
     rdp_gateway_username: Optional[str] = None
     rdp_gateway_password: Optional[str] = None
     rdp_gateway_credential_id: Optional[str] = None
+    rdp_nla: bool = True                    # Network Level Authentication
+    rdp_domain: str = ""                    # Windows domain for NLA
     
     # VNC options
     vnc_scaling: bool = False

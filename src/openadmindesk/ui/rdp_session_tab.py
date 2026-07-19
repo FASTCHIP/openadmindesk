@@ -87,6 +87,7 @@ class RdpSessionTab(QWidget):
         self._client.connected.connect(self._on_connected)
         self._client.disconnected.connect(self._on_disconnected)
         self._client.error_occurred.connect(self._on_error)
+        self._client.certificate_prompt.connect(self._on_certificate_prompt)
 
     # ── connection control ────────────────────────────────────────────
 
@@ -145,8 +146,25 @@ class RdpSessionTab(QWidget):
         self._status_label.setToolTip(message)
         self._connect_button.setEnabled(True)
         self._cad_button.setEnabled(False)
-
+ 
+    def _on_certificate_prompt(self, host, fingerprint, subject, issuer):
+        from PySide6.QtWidgets import QMessageBox
+        msg = (
+            f"The RDP server certificate for {host} is not trusted yet.\n\n"
+            f"Subject: {subject}\n"
+            f"Issuer: {issuer}\n"
+            f"Fingerprint (SHA-256): {fingerprint}\n\n"
+            "Only trust it if this fingerprint is expected.\n"
+            "Trusting will store the fingerprint for future connections."
+        )
+        reply = QMessageBox.question(
+            self, "Trust RDP Server Certificate", msg,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        self._client.set_certificate_decision(reply == QMessageBox.Yes)
+ 
     # ── lifecycle ─────────────────────────────────────────────────────
+
 
     def closeEvent(self, event) -> None:
         """Clean up on tab close."""

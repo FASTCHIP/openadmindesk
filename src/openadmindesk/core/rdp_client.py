@@ -5,17 +5,26 @@ No Qt or threading dependencies — pure ctypes definitions.
 """
 
 from __future__ import annotations
-
+ 
 import ctypes
+import json
+import logging
+import queue
+import threading
+from pathlib import Path
 from ctypes import (
     c_void_p, c_char_p, c_bool, c_uint16, c_uint32,
+    c_int,
     CFUNCTYPE, Structure,
 )
 from typing import Optional
-
+from PySide6.QtCore import QObject, QThread, Signal, Slot, QMutex, QMutexLocker
+from PySide6.QtGui import QImage
+ 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
+
 
 # Connection error codes (freerdp.h)
 FREERDP_ERROR_SUCCESS = 0
@@ -46,10 +55,46 @@ PTR_FLAGS_BUTTON3 = 0x4000
 # ---------------------------------------------------------------------------
 # Opaque handles (forward declarations)
 # ---------------------------------------------------------------------------
-
+ 
+class RdpCertTrustStore:
+    """Persistent store for trusted RDP server certificate thumbprints."""
+    def __init__(self, path=None):
+        self.path = path or Path.home() / ".config" / "openadmindesk" / "rdp_known_certs.json"
+        self._certs = {}
+        self._lock = threading.Lock()
+        self._load()
+    def _load(self):
+        if self.path.exists():
+            try:
+                self._certs = json.loads(self.path.read_text())
+            except (json.JSONDecodeError, OSError):
+                self._certs = {}
+    def _save(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps(self._certs, indent=2, sort_keys=True))
+        self.path.chmod(0o600)
+    def is_trusted(self, host, fingerprint):
+        with self._lock:
+            entry = self._certs.get(host)
+            return bool(entry and entry.get("thumbprint") == fingerprint)
+    def add_trust(self, host, fingerprint, subject="", issuer=""):
+        import datetime
+        with self._lock:
+            self._certs[host] = {"thumbprint": fingerprint, "subject": subject, "issuer": issuer, "first_seen": datetime.datetime.utcnow().isoformat() + "Z"}
+            self._save()
+    def remove_trust(self, host):
+        with self._lock:
+            if host in self._certs:
+                del self._certs[host]
+                self._save()
+                return True
+            return False
+ 
+ 
 class rdpContext(Structure):
     """Opaque RDP context — defined fully by FreeRDP internals."""
     _fields_: list = []  # opaque to us, passed as pointer
+
 
 
 class rdpSettings(Structure):
@@ -192,14 +237,9 @@ def _resolve_symbol(lib: ctypes.CDLL, name: str, restype=None, argtypes=None):
 # ---------------------------------------------------------------------------
 # RdpClient — QObject wrapper for FreeRDP client lifecycle
 # ---------------------------------------------------------------------------
-
-import logging
-import queue
-from PySide6.QtCore import QObject, QThread, Signal, Slot, QMutex, QMutexLocker
-from PySide6.QtGui import QImage
-from ctypes import c_int
-
+ 
 try:
+
     from openadmindesk.core.profile import Profile
 except ImportError:
     Profile = None
@@ -213,6 +253,8 @@ FREERDP_SETTING_CERT_ACCEPT = 32
 FREERDP_SETTING_GATEWAY_HOST = 50
 FREERDP_SETTING_GATEWAY_USERNAME = 51
 FREERDP_SETTING_GATEWAY_PASSWORD = 52
+FREERDP_SETTING_NLA = 12           # FreeRDP_NlaSecurity
+FREERDP_SETTING_DOMAIN = 4         # FreeRDP_Domain
 
 
 logger = logging.getLogger(__name__)
@@ -230,8 +272,10 @@ class RdpClient(QObject):
     connected = Signal()
     disconnected = Signal()
     error_occurred = Signal(str)
-
+    certificate_prompt = Signal(str, str, str, str)
+ 
     def __init__(self, profile=None, parent=None):
+
         super().__init__(parent)
         self._profile = profile
         self._library = FreeRdpLibrary()
@@ -269,8 +313,10 @@ class RdpClient(QObject):
             self._worker.connected.connect(self._on_connected)
             self._worker.disconnected.connect(self._on_disconnected)
             self._worker.error_occurred.connect(self._on_worker_error)
-
+            self._worker.certificate_prompt.connect(self._on_certificate_prompt)
+ 
             self._thread.started.connect(self._worker.run)
+
             self._worker.finished.connect(self._thread.quit)
             self._worker.finished.connect(self._worker.deleteLater)
             self._thread.finished.connect(self._thread.deleteLater)
@@ -310,8 +356,13 @@ class RdpClient(QObject):
     @property
     def error_message(self):
         return self._error_message
-
+ 
+    def set_certificate_decision(self, accepted):
+        if self._worker is not None:
+            self._worker.set_certificate_decision(accepted)
+ 
     @Slot(QImage)
+
     def _on_frame_ready(self, image):
         self.frame_ready.emit(image)
 
@@ -329,9 +380,14 @@ class RdpClient(QObject):
     def _on_worker_error(self, message):
         self._error_message = message
         self.error_occurred.emit(message)
-
+ 
+    @Slot(str, str, str, str)
+    def _on_certificate_prompt(self, host, fingerprint, subject, issuer):
+        self.certificate_prompt.emit(host, fingerprint, subject, issuer)
+ 
     @Slot()
     def _on_thread_finished(self):
+
         with QMutexLocker(self._mutex):
             self._connected = False
             self._thread = None
@@ -346,8 +402,10 @@ class _RdpWorker(QObject):
     disconnected = Signal()
     error_occurred = Signal(str)
     finished = Signal()
-
+    certificate_prompt = Signal(str, str, str, str)
+ 
     def __init__(self, profile, library, parent=None):
+
         super().__init__(parent)
         self._profile = profile
         self._library = library
@@ -357,8 +415,12 @@ class _RdpWorker(QObject):
         self._resize_requested = None
         self._ctrl_alt_del_requested = False
         self._context = None
-
+        self._cert_trust_store = RdpCertTrustStore()
+        self._cert_event = threading.Event()
+        self._cert_accepted = False
+ 
     @Slot()
+
     def run(self):
         """Load FreeRDP symbols, create context, connect, and run event loop."""
         lib = self._library.lib
@@ -402,9 +464,11 @@ class _RdpWorker(QObject):
 
         self._context = ctx
         self._configure_settings(ctx, lib)
+        self._register_cert_verify_callback(ctx, lib)
         self._register_callbacks(ctx, lib)
-
+ 
         rc = freerdp_connect(ctx)
+
         if rc != 0:
             self.error_occurred.emit(f"RDP connection failed (code {rc})")
             self._cleanup(freerdp_disconnect, freerdp_free)
@@ -551,10 +615,20 @@ class _RdpWorker(QObject):
             set_server(ctx, FREERDP_SETTING_GATEWAY_USERNAME, profile.rdp_gateway_username.encode("utf-8"))
         if profile.rdp_gateway_password:
             set_server(ctx, FREERDP_SETTING_GATEWAY_PASSWORD, profile.rdp_gateway_password.encode("utf-8"))
-        if set_bool and getattr(profile, "rdp_certificate_policy", "") in ("auto", "tofu"):
+        if set_bool and getattr(profile, "rdp_certificate_policy", "") == "auto":
             set_bool(ctx, FREERDP_SETTING_CERT_ACCEPT, True)
-
+        
+        # NLA (Network Level Authentication)
+        nla_profile_value = getattr(profile, "rdp_nla", True)
+        if nla_profile_value and set_uint32:
+            set_uint32(ctx, FREERDP_SETTING_NLA, 1)
+        # Windows domain for NLA
+        domain = getattr(profile, "rdp_domain", "") or ""
+        if domain and set_server:
+            set_server(ctx, FREERDP_SETTING_DOMAIN, domain.encode("utf-8"))
+ 
     def _register_callbacks(self, ctx, lib):
+
         update_cb = FRAME_UPDATE_CALLBACK(self._on_frame_update)
         set_update = _resolve_symbol(lib, "freerdp_client_set_update_callback",
                                      restype=None,
@@ -582,3 +656,42 @@ class _RdpWorker(QObject):
             return 0
         except Exception:
             return -1
+ 
+    def set_certificate_decision(self, accepted):
+        self._cert_accepted = accepted
+        self._cert_event.set()
+ 
+    def _register_cert_verify_callback(self, ctx, lib):
+        cert_verify_cb = CFUNCTYPE(
+            c_bool, c_void_p, c_char_p, c_uint32, c_char_p, c_char_p, c_char_p, c_char_p, c_uint32, c_void_p,
+        )
+        def wrapper(ctx_ptr, host, port, common_name, subject, issuer, fingerprint, flags, userdata):
+            return self._on_cert_verify(host, fingerprint, subject, issuer)
+        set_cert_verify = _resolve_symbol(
+            lib, "freerdp_client_set_cert_verify_callback",
+            restype=c_bool,
+            argtypes=[c_void_p, cert_verify_cb, c_void_p],
+        )
+        if set_cert_verify is not None:
+            self._cert_verify_cb = cert_verify_cb(wrapper)
+            set_cert_verify(ctx, self._cert_verify_cb, None)
+            logger.debug("FreeRDP certificate verify callback registered")
+        else:
+            logger.warning("freerdp_client_set_cert_verify_callback not found")
+ 
+    def _on_cert_verify(self, host, fingerprint, subject, issuer):
+        host_str = host.decode("utf-8", errors="replace") if isinstance(host, bytes) else str(host or "")
+        fp_str = fingerprint.decode("utf-8", errors="replace") if isinstance(fingerprint, bytes) else str(fingerprint or "")
+        subj_str = subject.decode("utf-8", errors="replace") if isinstance(subject, bytes) else str(subject or "")
+        iss_str = issuer.decode("utf-8", errors="replace") if isinstance(issuer, bytes) else str(issuer or "")
+        if self._cert_trust_store.is_trusted(host_str, fp_str):
+            return True
+        self._cert_event.clear()
+        self._cert_accepted = False
+        self.certificate_prompt.emit(host_str, fp_str, subj_str, iss_str)
+        if not self._cert_event.wait(timeout=30.0):
+            return False
+        if self._cert_accepted:
+            self._cert_trust_store.add_trust(host_str, fp_str, subj_str, iss_str)
+            return True
+        return False

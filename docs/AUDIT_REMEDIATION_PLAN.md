@@ -278,8 +278,8 @@ across all build variants (AppImage, deb, rpm, exe).
 - [x] 10.2 Core wrapper: implement `RdpClient(QObject)` with connect/disconnect/event loop lifecycle, frame callback, Qt signals (`connected`, `disconnected`, `frame_ready`, `error_occurred`).
 - [x] 10.3 Display widget: implement `RdpDisplay(QWidget)` — QPainter frame rendering, keyboard scancode translation, mouse event forwarding, resize notification.
 - [x] 10.4 Session tab: rewrite `RdpSessionTab` to embed `RdpDisplay` instead of external-process control panel.
-- [ ] 10.5 Certificate TOFU: FreeRDP certificate verify callback → Qt dialog → store thumbprint; match existing SSH host-key TOFU pattern.
-- [ ] 10.6 NLA authentication: pass credentials from Profile/Vault to FreeRDP settings struct; never on command line.
+- [x] 10.5 Certificate TOFU: FreeRDP certificate verify callback → Qt dialog → store thumbprint; match existing SSH host-key TOFU pattern.
+- [x] 10.6 NLA authentication: pass credentials from Profile/Vault to FreeRDP settings struct; never on command line.
 - [ ] 10.7 Packaging: bundle `libfreerdp-client3.so` for AppImage; add `libfreerdp-client3` dependency for deb/rpm; include DLLs in Windows PyInstaller build.
 - [ ] 10.8 Tests: mock FreeRDP in `test_rdp_client.py`; headless Qt tests for `test_rdp_display.py`; update existing `test_rdp_backend.py` for new backend API.
 - [ ] 10.9 Advanced features: fullscreen toggle, Ctrl-Alt-Del injection, clipboard text sync (FreeRDP clipboard channel).

@@ -92,6 +92,8 @@ class ProfileStore:
                     rdp_gateway_username TEXT,
                     rdp_gateway_password TEXT,
                     rdp_gateway_credential_id TEXT,
+                    rdp_nla BOOLEAN DEFAULT 1,
+                    rdp_domain TEXT DEFAULT '',
                     notes TEXT,
                     created_at TEXT,
                     updated_at TEXT,
@@ -119,6 +121,8 @@ class ProfileStore:
             self._migrate_add_column(conn, "profiles", "rdp_gateway_username", "TEXT")
             self._migrate_add_column(conn, "profiles", "rdp_gateway_password", "TEXT")
             self._migrate_add_column(conn, "profiles", "rdp_gateway_credential_id", "TEXT")
+            self._migrate_add_column(conn, "profiles", "rdp_nla", "BOOLEAN DEFAULT 1")
+            self._migrate_add_column(conn, "profiles", "rdp_domain", "TEXT DEFAULT ''")
             self._migrate_add_column(conn, "profiles", "notes", "TEXT")
             # Step 8 metadata columns
             self._migrate_add_column(conn, "profiles", "favorite", "BOOLEAN DEFAULT 0")
@@ -218,13 +222,13 @@ class ProfileStore:
                     (name, host, port, username, session_type, parent_folder, credential_id,
                       password, private_key_path, private_key_passphrase,
                       use_ssh_agent, compression, keep_alive, ssh_config, proxy_command,
-                     rdp_drive_redirection, rdp_drive_path,
-                     rdp_printer_redirection, rdp_multimon,
-                     rdp_gateway, rdp_gateway_username, rdp_gateway_password,
-                     rdp_gateway_credential_id, notes,
-                     created_at, updated_at,
-                     favorite, tags, icon_id, last_connected, last_error, last_duration)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                      rdp_drive_redirection, rdp_drive_path,
+                      rdp_printer_redirection, rdp_multimon,
+                      rdp_gateway, rdp_gateway_username, rdp_gateway_password,
+                      rdp_gateway_credential_id, rdp_nla, rdp_domain, notes,
+                      created_at, updated_at,
+                      favorite, tags, icon_id, last_connected, last_error, last_duration)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?)
                 """, (
                     profile.name, profile.host, profile.port, profile.username,
@@ -239,6 +243,7 @@ class ProfileStore:
                     int(profile.rdp_printer_redirection), int(profile.rdp_multimon),
                     profile.rdp_gateway, profile.rdp_gateway_username,
                     rdp_gateway_password_to_save, profile.rdp_gateway_credential_id,
+                    int(profile.rdp_nla), profile.rdp_domain,
                     profile.notes,
                     profile.created_at, profile.updated_at,
                     int(profile.favorite), profile.tags, profile.icon_id,
@@ -424,19 +429,21 @@ class ProfileStore:
             if is_row_object and 'rdp_gateway_credential_id' in row.keys()
             else None
         )
-        notes = row['notes'] if is_row_object else row[24]
-        created_at = row['created_at'] if is_row_object else row[25]
-        updated_at = row['updated_at'] if is_row_object else row[26]
-        favorite = bool(row['favorite'] if is_row_object else row[27])
-        tags = row['tags'] if is_row_object else row[28]
+        rdp_nla = bool(row['rdp_nla'] if is_row_object else row[24])
+        rdp_domain = row['rdp_domain'] if is_row_object else row[25] or ""
+        notes = row['notes'] if is_row_object else row[26]
+        created_at = row['created_at'] if is_row_object else row[27]
+        updated_at = row['updated_at'] if is_row_object else row[28]
+        favorite = bool(row['favorite'] if is_row_object else row[29])
+        tags = row['tags'] if is_row_object else row[30]
         icon_id = (
             row['icon_id']
             if is_row_object and 'icon_id' in row.keys()
-            else (row[29] if not is_row_object and len(row) > 29 else None)
+            else (row[31] if not is_row_object and len(row) > 31 else None)
         )
-        last_connected = row['last_connected'] if is_row_object else row[30]
-        last_error = row['last_error'] if is_row_object else row[31]
-        last_duration = row['last_duration'] if is_row_object else row[32]
+        last_connected = row['last_connected'] if is_row_object else row[32]
+        last_error = row['last_error'] if is_row_object else row[33]
+        last_duration = row['last_duration'] if is_row_object else row[34]
 
         return Profile(
             name=name, host=host, port=port, username=username,
@@ -455,6 +462,7 @@ class ProfileStore:
             rdp_gateway_username=rdp_gateway_username,
             rdp_gateway_password=rdp_gateway_password,
             rdp_gateway_credential_id=rdp_gateway_credential_id,
+            rdp_nla=rdp_nla, rdp_domain=rdp_domain,
             notes=notes,
             created_at=created_at,
             updated_at=updated_at,

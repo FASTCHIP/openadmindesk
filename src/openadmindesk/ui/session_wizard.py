@@ -409,6 +409,8 @@ class SessionWizard(QWizard):
             kwargs["rdp_printer_redirection"] = self.rdp_advanced_page.printer_cb.isChecked()
             kwargs["rdp_clipboard_redirection"] = self.rdp_advanced_page.clipboard_cb.isChecked()
             kwargs["rdp_multimon"] = self.rdp_advanced_page.multimon_cb.isChecked()
+            kwargs["rdp_nla"] = self.rdp_advanced_page.nla_cb.isChecked()
+            kwargs["rdp_domain"] = self.rdp_advanced_page.domain_input.text().strip()
 
         # VNC advanced
         if st == SessionType.VNC:
@@ -741,6 +743,16 @@ class _RdpAdvancedPage(QWizardPage):
         self.gateway_user_input.setPlaceholderText("user")
         self.registerField("rdp_gateway_username", self.gateway_user_input)
         form.addRow(_("Gateway user:"), self.gateway_user_input)
+
+        self.domain_input = QLineEdit()
+        self.domain_input.setPlaceholderText("DOMAIN")
+        self.registerField("rdp_domain", self.domain_input)
+        form.addRow(_("Domain:"), self.domain_input)
+
+        self.nla_cb = QCheckBox(_("Network Level Authentication (NLA)"))
+        self.nla_cb.setChecked(True)
+        self.registerField("rdp_nla", self.nla_cb)
+        form.addRow("", self.nla_cb)
 
         # Certificate policy
         self.cert_combo = QComboBox()

@@ -420,7 +420,64 @@ def test_profile_store_primary_id_does_not_authorize_unprotected_gateway() -> No
             ).fetchone()
         
         assert row[0] == 0
-
     finally:
         if os.path.exists(db_path):
             os.unlink(db_path)
+
+
+def test_profile_store_nla_domain_roundtrip(tmp_path) -> None:
+
+    """NLA and domain fields should survive save/load cycle."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    profile = Profile(
+        name="RDP NLA Test",
+        host="nla-test.example.com",
+        port=3389,
+        session_type=SessionType.RDP,
+        username="admin",
+        password="secret",
+        credential_id="test-cred",
+        rdp_nla=True,
+        rdp_domain="MYDOMAIN",
+        rdp_gateway="gw.example.com",
+    )
+    assert store.save_profile(profile) is True
+    
+    loaded = store.load_profile(profile.name)
+    assert loaded is not None
+    assert loaded.rdp_nla is True
+    assert loaded.rdp_domain == "MYDOMAIN"
+    
+    # Test with NLA disabled
+    profile2 = Profile(
+        name="RDP No NLA",
+        host="no-nla.example.com",
+        port=3389,
+        session_type=SessionType.RDP,
+        rdp_nla=False,
+        rdp_domain="",
+    )
+    assert store.save_profile(profile2) is True
+    loaded2 = store.load_profile(profile2.name)
+    assert loaded2 is not None
+    assert loaded2.rdp_nla is False
+    assert loaded2.rdp_domain == ""
+
+
+def test_profile_store_nla_default_true(tmp_path) -> None:
+    """NLA should default to True for new RDP profiles."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    profile = Profile(
+        name="RDP Default NLA",
+        host="default-nla.example.com",
+        port=3389,
+        session_type=SessionType.RDP,
+        # rdp_nla not explicitly set - uses default True
+    )
+    assert profile.rdp_nla is True
+    assert store.save_profile(profile) is True
+    loaded = store.load_profile(profile.name)
+    assert loaded is not None
+    assert loaded.rdp_nla is True
+    assert loaded.rdp_domain == ""
+
