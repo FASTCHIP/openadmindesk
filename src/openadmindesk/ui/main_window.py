@@ -178,6 +178,13 @@ class MainWindow(QMainWindow):
         # Set up sessions widget in activity rail
         self.activity_rail.set_sessions_widget(self.connection_tree)
 
+        # Create persistent tunnels dashboard widget
+        self._tunnel_dashboard = TunnelManagerWidget()
+        self._tunnel_dashboard.status_message.connect(
+            lambda msg: self.connection_event_area.showMessage(msg, 5000)
+        )
+        self.activity_rail.set_tunnels_widget(self._tunnel_dashboard)
+
         main_layout.addWidget(self.activity_rail)
         main_layout.addWidget(self.workspace_container)
         main_layout.setStretch(1, 1)  # Let workspace expand
@@ -924,18 +931,8 @@ class MainWindow(QMainWindow):
                 f"Profile '{profile_name}' not found.")
 
     def _show_tunnel_manager(self) -> None:
-        """Open the tunnel manager dialog."""
-        from PySide6.QtWidgets import QDialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Tunnel Manager")
-        dialog.setMinimumSize(600, 400)
-        layout = QVBoxLayout(dialog)
-        tunnel_widget = TunnelManagerWidget(dialog)
-        tunnel_widget.status_message.connect(
-            lambda msg: self.connection_event_area.showMessage(msg, 5000)
-        )
-        layout.addWidget(tunnel_widget)
-        dialog.exec()
+        """Switch to tunnels mode in the activity rail sidebar."""
+        self.activity_rail._set_mode("tunnels")
 
     def _show_gui_launcher(self) -> None:
         """Open the GUI launcher dialog."""

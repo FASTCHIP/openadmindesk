@@ -56,11 +56,13 @@ class ActivityRail(QWidget):
         button_bar_layout.setAlignment(Qt.AlignTop)
         
         # Add mode buttons
-        modes = [("sessions", "Sessions", "Manage connection profiles")]
+        modes = [
+            ("sessions", "Sessions", "Manage connection profiles"),
+            ("tunnels", "Tunnels", "SSH port forwarding"),
+        ]
         if include_planned_modes:
             modes.extend([
                 ("sftp", "SFTP", "File transfer browser"),
-                ("tunnels", "Tunnels", "SSH port forwarding"),
                 ("tools", "Tools", "Network utilities"),
                 ("macros", "Macros", "Saved command sequences"),
                 ("vault", "Vault", "Credential management"),

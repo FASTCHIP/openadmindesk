@@ -2314,7 +2314,38 @@ no event-loop timing, no dialogs):
    actions (unlock=disabled, lock=enabled), no auto-lock message.
 5. **`test_vault_auto_lock_manual_lock_no_auto_message`** — manual lock sync
    (`_last_vault_unlocked=False`) prevents subsequent poll from emitting
-   auto-lock message.
+          auto-lock message.
+
+---
+
+## 2026-07-19 (Gap Phase 6 — Tunnels Dashboard)
+
+### Implementation
+
+1. **Core enhancements** (`core/tunnel_manager.py`):
+   - `started_at` timestamp, `get_duration_seconds()`, `get_stderr_log()` on TunnelProcess
+   - `restart_tunnel()`, `get_tunnel_stderr()`, `get_tunnel_duration()` on TunnelManager
+
+2. **UI dashboard** (`ui/tunnel_manager.py`):
+   - Added "Uptime" column with live mm:ss display
+   - Added "Restart" and "Log" toolbar buttons
+   - Live status refresh now shows duration for running tunnels
+   - View log action opens stderr in QMessageBox
+
+3. **Sidebar integration** (`ui/activity_rail.py`, `ui/main_window.py`):
+   - "Tunnels" mode enabled by default in activity rail sidebar
+   - Persistent TunnelManagerWidget created at startup, connected to event area
+   - _show_tunnel_manager() now switches sidebar mode (was: separate dialog)
+
+### Files Changed
+
+- `src/openadmindesk/core/tunnel_manager.py` — duration, restart, stderr log
+- `src/openadmindesk/ui/tunnel_manager.py` — uptime column, restart/log buttons
+- `src/openadmindesk/ui/activity_rail.py` — tunnels mode default-enabled
+- `src/openadmindesk/ui/main_window.py` — sidebar tunnel widget, simplified dialog
+- `docs/WORKLOG.md` — this entry
+
+No commit or push performed.
 6. **`test_vault_auto_lock_setup_success_no_false_auto_message`** — successful
    vault setup with `is_unlocked()=False` syncs `_last_vault_unlocked` from
    actual state; subsequent poll emits no false auto-lock message. Mocks

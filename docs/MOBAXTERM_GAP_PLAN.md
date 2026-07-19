@@ -154,10 +154,10 @@ Goal: raise tunnels/tools from prototype to operational dashboard.
 
 Tasks:
 
-- Add tunnel dashboard with running/stopped/error states, local port checks, logs, restart, autostart.
-- Add SSH gateway model shared by SSH/Telnet/RDP/VNC/SFTP profiles.
-- Add network tools hub: ping, traceroute, DNS lookup, port scan, whois, HTTP check, key/fingerprint viewer.
-- Add safe command execution wrappers and output panes.
+- [x] Add tunnel dashboard with running/stopped/error states, local port checks, logs, restart, autostart.
+- [x] Add SSH gateway model shared by SSH/Telnet/RDP/VNC/SFTP profiles.
+- [x] Add network tools hub: ping, traceroute, DNS lookup, port scan, whois, HTTP check, key/fingerprint viewer.
+- [x] Add safe command execution wrappers and output panes.
 
 Acceptance:
 

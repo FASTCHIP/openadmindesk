@@ -212,6 +212,8 @@ class TunnelManagerWidget(QWidget):
         self.gui_launcher = GuiLauncher()
         self._tunnel_profiles: Dict[str, TunnelProfile] = {}
         self._setup_ui()
+        # Store connect/disconnect handler for later use
+        self._status_handler = None
 
     def _setup_ui(self) -> None:
         """Setup the UI."""
@@ -231,6 +233,16 @@ class TunnelManagerWidget(QWidget):
         stop_btn.setText("■ Stop")
         stop_btn.clicked.connect(self._stop_selected_tunnel)
         toolbar.addWidget(stop_btn)
+
+        restart_btn = QToolButton()
+        restart_btn.setText("↻ Restart")
+        restart_btn.clicked.connect(self._restart_selected_tunnel)
+        toolbar.addWidget(restart_btn)
+
+        log_btn = QToolButton()
+        log_btn.setText("📋 Log")
+        log_btn.clicked.connect(self._view_tunnel_log)
+        toolbar.addWidget(log_btn)
 
         toolbar.addSeparator()
 
@@ -261,10 +273,12 @@ class TunnelManagerWidget(QWidget):
 
         # Tunnel list
         self.tunnel_tree = QTreeWidget()
-        self.tunnel_tree.setHeaderLabels(["Name", "Type", "Target", "Status"])
-        self.tunnel_tree.setColumnWidth(0, 180)
-        self.tunnel_tree.setColumnWidth(1, 120)
-        self.tunnel_tree.setColumnWidth(2, 200)
+        self.tunnel_tree.setHeaderLabels(["Name", "Type", "Target", "Status", "Uptime"])
+        self.tunnel_tree.setColumnWidth(0, 150)
+        self.tunnel_tree.setColumnWidth(1, 100)
+        self.tunnel_tree.setColumnWidth(2, 180)
+        self.tunnel_tree.setColumnWidth(3, 100)
+        self.tunnel_tree.setColumnWidth(4, 80)
         self.tunnel_tree.setAlternatingRowColors(True)
         layout.addWidget(self.tunnel_tree)
 
@@ -281,14 +295,24 @@ class TunnelManagerWidget(QWidget):
         self._timer.start(2000)  # every 2 seconds
 
     def _refresh_tunnel_status(self) -> None:
-        """Update tunnel status indicators."""
+        """Update tunnel status indicators with live data."""
         for i in range(self.tunnel_tree.topLevelItemCount()):
             item = self.tunnel_tree.topLevelItem(i)
             tunnel_id = item.data(0, Qt.UserRole)
             if tunnel_id:
                 running = self.tunnel_manager.is_tunnel_running(tunnel_id)
-                item.setText(3, "● Running" if running else "○ Stopped")
-                item.setForeground(3, Qt.green if running else Qt.red)
+                if running:
+                    item.setText(3, "● Running")
+                    item.setForeground(3, Qt.green)
+                    duration = self.tunnel_manager.get_tunnel_duration(tunnel_id)
+                    if duration > 0:
+                        mins = int(duration // 60)
+                        secs = int(duration % 60)
+                        item.setText(4, f"{mins}m {secs}s")
+                else:
+                    item.setText(3, "○ Stopped")
+                    item.setForeground(3, Qt.gray)
+                    item.setText(4, "—")
 
     def _add_tunnel(self) -> None:
         """Open dialog to create a new tunnel."""
@@ -317,7 +341,8 @@ class TunnelManagerWidget(QWidget):
                 profile.name,
                 profile.tunnel_type.value.replace("_", " ").title(),
                 target,
-                "○ Stopped"
+                "○ Stopped",
+                "—"
             ])
             item.setData(0, Qt.UserRole, profile.id)
             item.setForeground(3, Qt.red)
@@ -347,6 +372,29 @@ class TunnelManagerWidget(QWidget):
             item.setText(3, "○ Stopped")
             item.setForeground(3, Qt.red)
             self.status_message.emit(f"Tunnel '{item.text(0)}' stopped")
+
+    def _restart_selected_tunnel(self) -> None:
+        """Restart the selected tunnel."""
+        item = self.tunnel_tree.currentItem()
+        if not item:
+            return
+        tunnel_id = item.data(0, Qt.UserRole)
+        if tunnel_id:
+            self.tunnel_manager.restart_tunnel(tunnel_id)
+            self.status_message.emit("Tunnel restarted")
+
+    def _view_tunnel_log(self) -> None:
+        """Show stderr log for selected tunnel."""
+        item = self.tunnel_tree.currentItem()
+        if not item:
+            return
+        tunnel_id = item.data(0, Qt.UserRole)
+        if tunnel_id:
+            log_text = self.tunnel_manager.get_tunnel_stderr(tunnel_id)
+            if log_text:
+                QMessageBox.information(self, "Tunnel Log", log_text[:5000])
+            else:
+                QMessageBox.information(self, "Tunnel Log", "No log output available.")
 
     def _launch_gui_app(self) -> None:
         """Dialog to launch a remote GUI app with X11 forwarding."""

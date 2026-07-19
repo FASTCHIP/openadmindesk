@@ -58,6 +58,28 @@ class TunnelManager:
             return self._tunnels[tunnel_id].get_status()
         return None
 
+    def restart_tunnel(self, tunnel_id: str) -> bool:
+        """Stop and restart a tunnel."""
+        profile = None
+        if tunnel_id in self._tunnels:
+            profile = self._tunnels[tunnel_id].profile
+            self.stop_tunnel(tunnel_id)
+        if profile is not None:
+            return self.start_tunnel(profile)
+        return False
+
+    def get_tunnel_stderr(self, tunnel_id: str) -> str:
+        """Get stderr log for a tunnel."""
+        if tunnel_id in self._tunnels:
+            return self._tunnels[tunnel_id].get_stderr_log()
+        return ""
+
+    def get_tunnel_duration(self, tunnel_id: str) -> float:
+        """Get tunnel uptime in seconds."""
+        if tunnel_id in self._tunnels:
+            return self._tunnels[tunnel_id].get_duration_seconds()
+        return 0.0
+
 
 class TunnelProcess:
     """Represents a running tunnel process."""
@@ -70,6 +92,10 @@ class TunnelProcess:
         self._thread: Optional[threading.Thread] = None
         self._stderr_thread: Optional[threading.Thread] = None
         self._stderr_lines: list[str] = []
+        import datetime
+        self._started_at: Optional[datetime.datetime] = None
+        self._bytes_sent: int = 0
+        self._bytes_recv: int = 0
 
     def start(self) -> bool:
         """Start the tunnel."""
@@ -108,6 +134,8 @@ class TunnelProcess:
             self._start_stderr_capture()
 
             self._running = True
+            import datetime
+            self._started_at = datetime.datetime.now(datetime.timezone.utc)
 
             # Start monitoring thread
             self._thread = threading.Thread(target=self._monitor_process, daemon=True)
@@ -163,6 +191,17 @@ class TunnelProcess:
                 "exception_class": e.__class__.__name__,
             })
             return False
+
+    def get_duration_seconds(self) -> float:
+        """Return tunnel uptime in seconds, or 0 if not started."""
+        import datetime
+        if self._started_at is None:
+            return 0.0
+        return (datetime.datetime.now(datetime.timezone.utc) - self._started_at).total_seconds()
+
+    def get_stderr_log(self) -> str:
+        """Return captured stderr lines as a single string."""
+        return "\n".join(self._stderr_lines)
 
     def is_running(self) -> bool:
         """Check if tunnel is running."""
