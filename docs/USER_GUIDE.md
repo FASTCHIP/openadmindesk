@@ -14,6 +14,45 @@
 5. **Connect** — Double-click the profile in the connection tree, or right-click → Connect. Terminal tab opens.
 6. **Work** — Type commands in the terminal. Use SFTP button in toolbar to browse/transfer files.
 
+## Common Workflows
+
+### Create an SSH session
+1. Click "New Session" → select SSH card → Next.
+2. Enter host (e.g. `web.example.com`), port (22), username.
+3. Authentication page: select a vault account or enter password (saved to vault).
+4. Advanced: enable compression for slow links, X11 forwarding for GUI apps.
+5. Summary: review settings, click Finish.
+6. Double-click the new profile in the connection tree.
+
+### Transfer files via SFTP
+1. Connect to an SSH profile.
+2. Click the 📁 (SFTP) button in the terminal toolbar — the SFTP sidebar opens.
+3. Browse directories in the tree or table view.
+4. Upload: drag files from desktop or click Upload.
+5. Download: select files, click Download.
+6. Edit remote files: double-click → confirm download → edit locally → save to upload back.
+
+### Connect via RDP
+1. Create an RDP profile through Session Wizard or Profile Editor.
+2. Set Network Level Authentication (NLA) — enabled by default — and Windows domain if needed.
+3. Configure TS Gateway for enterprise environments.
+4. Open the profile. On first connection, verify the server certificate fingerprint in the TOFU dialog.
+5. Use the toolbar: Fullscreen (F11), Ctrl+Alt+Del, Connect/Disconnect.
+6. Clipboard sync works automatically — copy local text, paste into remote session.
+
+### Use MultiExec for broadcast commands
+1. Open multiple SSH sessions.
+2. Click 📢 MultiExec in the toolbar.
+3. Check the sessions you want to broadcast to.
+4. Type in any checked terminal — keystrokes appear in all selected sessions.
+5. Click 🛑 Emergency Stop to clear all selections.
+
+### Organize profiles
+1. Right-click the connection tree → New Folder.
+2. Drag profiles into folders.
+3. Star (★) favorites to pin them at top.
+4. Search: type in filter bar; use `tag:production` or `proto:ssh` to filter by tag/protocol.
+
 ## Connection Tree
 - Organize profiles in folders (right-click tree → New Folder)
 - Drag-and-drop profiles into folders
@@ -48,12 +87,22 @@
 - Emergency Stop button (🛑) clears all selections
 
 ## Other Session Types
-- **RDP**
-  - **Built-in Client**: RDP sessions render inside the application window using the embedded FreeRDP client — no external RDP application required.
-  - **Network Level Authentication (NLA)**: Enabled by default. Enter a Windows domain in the session wizard or profile editor if needed.
-  - **Certificate Trust On First Use (TOFU)**: On first connection, verify the server's SSL certificate fingerprint in the dialog before trusting. Trusted fingerprints are stored in `~/.config/openadmindesk/rdp_known_certs.json`.
-  - **Controls**: Fullscreen toggle (F11 or toolbar button), Ctrl+Alt+Del injection, clipboard sync between local and remote sessions.
-  - **Advanced Options**: Configure TS Gateway, certificate policy (auto/warn/ignore), drive redirection, printer redirection, clipboard redirection, and multi-monitor support in the Session Wizard or Profile Editor.
+## RDP Session Controls
+
+When connected to an RDP session:
+
+| Button | Action | Shortcut |
+|--------|--------|----------|
+| Connect/Disconnect | Start or stop RDP session | — |
+| Ctrl+Alt+Del | Send Ctrl+Alt+Del to remote | — |
+| Fullscreen | Toggle fullscreen mode | F11 |
+| — | Exit fullscreen | Esc |
+
+### RDP Security
+
+- **Certificate Trust On First Use (TOFU)**: First connection to a new server shows a certificate dialog. Verify the SHA-256 fingerprint before trusting. Trusted fingerprints are stored in `~/.config/openadmindesk/rdp_known_certs.json`.
+- **NLA Authentication**: Enabled by default. Uses vault credentials — never passed as command-line arguments.
+- **Gateway**: TS Gateway credentials stored in vault, referenced by `rdp_gateway_credential_id`.
 - **VNC**: scaling, view-only, color depth
 - **Telnet**: plaintext warning before connecting (legacy compatibility)
 - **Local Shell**: opens local terminal in a tab

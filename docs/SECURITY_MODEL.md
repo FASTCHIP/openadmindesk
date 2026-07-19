@@ -107,6 +107,21 @@ Never log:
 
 Log safe command structure and non-secret options only.
 
+## Crash and Diagnostic Log Collection
+
+OpenAdminDesk writes diagnostic logs to the application data directory. A crash-handling strategy ensures that:
+
+- **Log location**: `~/.local/share/openadmindesk/logs/` (rotating, max 5 files × 1 MB each).
+- **Redaction pipeline**: Before any log line is written, it is scanned for:
+  - Password-like patterns (removed).
+  - Private key content (removed).
+  - Full command-line arguments containing secrets (truncated to safe prefix).
+  - Hostnames and usernames from connection profiles (redacted to `host_<hash>`).
+- **Crash reports**: On unhandled exception, a minimal report with exception type, traceback (without local paths/arguments), and redacted environment is saved to `~/.local/share/openadmindesk/crashes/`.
+- **Collection**: Users can export diagnostics via File → Export Diagnostics, producing a sanitized zip archive suitable for bug reports.
+- **Retention**: Crash reports older than 30 days are automatically purged.
+- **Opt-out**: Set `diagnostics.enabled = false` in `~/.local/share/openadmindesk/settings.json` to disable crash collection.
+
 ## Tunnel Logging Contract
 
 Tunnel lifecycle events are logged with structured messages containing:
