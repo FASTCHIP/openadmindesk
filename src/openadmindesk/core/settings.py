@@ -15,7 +15,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Current schema version — bump when adding/removing fields with migrations
-_SETTINGS_VERSION = 1
+_SETTINGS_VERSION = 2
 
 # Default path for the settings file
 _SETTINGS_FILENAME = "settings.json"
@@ -65,6 +65,20 @@ class AppSettings:
 
     # ── Logging ──────────────────────────────────────────────────────────────
     log_level: str = "INFO"
+
+    # ── Appearance ───────────────────────────────────────────────────────────
+    dark_mode: bool = True
+    sidebar_width: int = 280
+
+    # ── Sessions ─────────────────────────────────────────────────────────────
+    confirm_before_disconnect: bool = True
+    auto_reconnect: bool = False
+    auto_reconnect_delay_ms: int = 2000
+
+    # ── Security ─────────────────────────────────────────────────────────────
+    vault_auto_lock_minutes: int = 15
+    prompt_master_password_on_startup: bool = True
+    diagnostics_enabled: bool = True
 
 
 class SettingsStore:
@@ -135,6 +149,17 @@ class SettingsStore:
             # Migrate from version 0 (unversioned) to version 1
             # No specific field renames needed for initial version
             current["version"] = 1
+
+            if from_version < 2:
+                current.setdefault("dark_mode", True)
+                current.setdefault("sidebar_width", 280)
+                current.setdefault("confirm_before_disconnect", True)
+                current.setdefault("auto_reconnect", False)
+                current.setdefault("auto_reconnect_delay_ms", 2000)
+                current.setdefault("vault_auto_lock_minutes", 15)
+                current.setdefault("prompt_master_password_on_startup", True)
+                current.setdefault("diagnostics_enabled", True)
+                current["version"] = 2
 
         current["version"] = _SETTINGS_VERSION
         return current

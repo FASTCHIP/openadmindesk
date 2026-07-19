@@ -11,7 +11,7 @@ from openadmindesk.core.settings import AppSettings, SettingsStore
 def test_app_settings_defaults() -> None:
     """AppSettings has sensible defaults for all fields."""
     s = AppSettings()
-    assert s.version == 1
+    assert s.version == 2
     assert s.language == "en"
     assert s.window_width == 1200
     assert s.window_height == 800
@@ -47,7 +47,7 @@ def test_settings_store_round_trip(tmp_path) -> None:
     assert loaded.sftp_show_hidden_files is True
     assert loaded.sftp_double_click_action == "download"
     assert loaded.terminal_font_size == 14
-    assert loaded.version == 1
+    assert loaded.version == 2
 
 
 def test_settings_store_missing_file(tmp_path) -> None:
@@ -56,7 +56,7 @@ def test_settings_store_missing_file(tmp_path) -> None:
     store = SettingsStore(path)
     s = store.load()
     assert isinstance(s, AppSettings)
-    assert s.version == 1
+    assert s.version == 2
 
 
 def test_settings_store_corrupt_file(tmp_path) -> None:
@@ -101,7 +101,7 @@ def test_settings_migration_from_v0(tmp_path) -> None:
 
     store = SettingsStore(path)
     s = store.load()
-    assert s.version == 1
+    assert s.version == 2
     assert s.language == "fr"
     assert s.terminal_font_size == 12
     assert s.sftp_show_hidden_files is True
@@ -130,3 +130,34 @@ def test_settings_dialog_uses_font_combo_box(tmp_path, qapp) -> None:
     assert not dialog._term_font.isEditable()
     assert dialog._term_font.count() >= 3
     assert dialog._term_font.findText("DejaVu Sans Mono") >= 0
+
+
+def test_appsettings_defaults_v2() -> None:
+    """New AppSettings should have v2 defaults."""
+    from openadmindesk.core.settings import AppSettings, _SETTINGS_VERSION
+    s = AppSettings()
+    assert s.version == _SETTINGS_VERSION
+    assert s.dark_mode is True
+    assert s.sidebar_width == 280
+    assert s.confirm_before_disconnect is True
+    assert s.auto_reconnect is False
+    assert s.vault_auto_lock_minutes == 15
+    assert s.diagnostics_enabled is True
+
+
+def test_settings_migrate_v1_to_v2(tmp_path) -> None:
+    """v1 settings should get v2 defaults on load."""
+    from openadmindesk.core.settings import SettingsStore
+    import json
+    
+    path = tmp_path / "settings.json"
+    v1_data = {"version": 1, "language": "ru", "log_level": "DEBUG"}
+    path.write_text(json.dumps(v1_data))
+    
+    store = SettingsStore(str(path))
+    loaded = store.load()
+    assert loaded.version == 2
+    assert loaded.language == "ru"
+    assert loaded.log_level == "DEBUG"
+    assert loaded.dark_mode is True  # new default
+    assert loaded.vault_auto_lock_minutes == 15  # new default

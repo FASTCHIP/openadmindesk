@@ -55,8 +55,11 @@ class SettingsDialog(QDialog):
         # Tab widget
         tabs = QTabWidget()
         tabs.addTab(self._general_tab(), _("General"))
+        tabs.addTab(self._appearance_tab(), _("Appearance"))
         tabs.addTab(self._terminal_tab(), _("Terminal"))
         tabs.addTab(self._sftp_tab(), _("SFTP"))
+        tabs.addTab(self._sessions_tab(), _("Sessions"))
+        tabs.addTab(self._security_tab(), _("Security"))
         tabs.addTab(self._logging_tab(), _("Logging"))
         layout.addWidget(tabs)
 
@@ -82,6 +85,23 @@ class SettingsDialog(QDialog):
             if code == self._settings.language:
                 self._lang_combo.setCurrentIndex(self._lang_combo.count() - 1)
         form.addRow(_("Language:"), self._lang_combo)
+
+        return w
+
+    def _appearance_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        s = self._settings
+
+        self._dark_mode = QCheckBox()
+        self._dark_mode.setChecked(s.dark_mode)
+        form.addRow(_("Dark mode:"), self._dark_mode)
+
+        self._sidebar_w = QSpinBox()
+        self._sidebar_w.setRange(200, 500)
+        self._sidebar_w.setValue(s.sidebar_width)
+        self._sidebar_w.setSuffix(" px")
+        form.addRow(_("Sidebar width:"), self._sidebar_w)
 
         return w
 
@@ -185,6 +205,50 @@ class SettingsDialog(QDialog):
 
         return w
 
+    def _sessions_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        s = self._settings
+
+        self._confirm_disc = QCheckBox()
+        self._confirm_disc.setChecked(s.confirm_before_disconnect)
+        self._confirm_disc.setToolTip(_("Ask before disconnecting an active session"))
+        form.addRow(_("Confirm disconnect:"), self._confirm_disc)
+
+        self._auto_reconnect = QCheckBox()
+        self._auto_reconnect.setChecked(s.auto_reconnect)
+        form.addRow(_("Auto-reconnect:"), self._auto_reconnect)
+
+        self._reconnect_delay = QSpinBox()
+        self._reconnect_delay.setRange(500, 10000)
+        self._reconnect_delay.setValue(s.auto_reconnect_delay_ms)
+        self._reconnect_delay.setSuffix(" ms")
+        form.addRow(_("Reconnect delay:"), self._reconnect_delay)
+
+        return w
+
+    def _security_tab(self) -> QWidget:
+        w = QWidget()
+        form = QFormLayout(w)
+        s = self._settings
+
+        self._vault_lock = QSpinBox()
+        self._vault_lock.setRange(1, 120)
+        self._vault_lock.setValue(s.vault_auto_lock_minutes)
+        self._vault_lock.setSuffix(_(" min"))
+        self._vault_lock.setToolTip(_("Auto-lock vault after inactivity"))
+        form.addRow(_("Vault auto-lock:"), self._vault_lock)
+
+        self._prompt_master = QCheckBox()
+        self._prompt_master.setChecked(s.prompt_master_password_on_startup)
+        form.addRow(_("Ask master password on start:"), self._prompt_master)
+
+        self._diag_enabled = QCheckBox()
+        self._diag_enabled.setChecked(s.diagnostics_enabled)
+        form.addRow(_("Diagnostics collection:"), self._diag_enabled)
+
+        return w
+
     def _logging_tab(self) -> QWidget:
         w = QWidget()
         form = QFormLayout(w)
@@ -227,6 +291,20 @@ class SettingsDialog(QDialog):
 
         # Logging
         s.log_level = self._log_level.currentData() or "INFO"
+
+        # Appearance
+        s.dark_mode = self._dark_mode.isChecked()
+        s.sidebar_width = self._sidebar_w.value()
+
+        # Sessions
+        s.confirm_before_disconnect = self._confirm_disc.isChecked()
+        s.auto_reconnect = self._auto_reconnect.isChecked()
+        s.auto_reconnect_delay_ms = self._reconnect_delay.value()
+
+        # Security
+        s.vault_auto_lock_minutes = self._vault_lock.value()
+        s.prompt_master_password_on_startup = self._prompt_master.isChecked()
+        s.diagnostics_enabled = self._diag_enabled.isChecked()
 
         self._store.save(s)
         self.accept()
