@@ -24,6 +24,7 @@ from openadmindesk.ui.multi_exec_panel import MultiExecPanel
 from openadmindesk.ui.profile_editor import ProfileEditor
 from openadmindesk.ui.account_manager import AccountManager
 from openadmindesk.ui.tunnel_manager import TunnelManagerWidget
+from openadmindesk.ui.tools_hub import ToolsHub
 from openadmindesk.ui.snippet_manager import SnippetManagerWidget
 from openadmindesk.core.profile_store import ProfileStore
 from openadmindesk.core.profile import Profile, SessionType
@@ -184,6 +185,13 @@ class MainWindow(QMainWindow):
             lambda msg: self.connection_event_area.showMessage(msg, 5000)
         )
         self.activity_rail.set_tunnels_widget(self._tunnel_dashboard)
+
+        # Create tools hub widget
+        self._tools_hub = ToolsHub()
+        self._tools_hub.launch_requested.connect(
+            lambda cmd: self.connection_event_area.showMessage(f"Tool: {cmd}", 3000)
+        )
+        self.activity_rail.set_tools_widget(self._tools_hub)
 
         main_layout.addWidget(self.activity_rail)
         main_layout.addWidget(self.workspace_container)

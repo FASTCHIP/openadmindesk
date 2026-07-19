@@ -59,11 +59,11 @@ class ActivityRail(QWidget):
         modes = [
             ("sessions", "Sessions", "Manage connection profiles"),
             ("tunnels", "Tunnels", "SSH port forwarding"),
+            ("tools", "Tools", "Network utilities"),
         ]
         if include_planned_modes:
             modes.extend([
                 ("sftp", "SFTP", "File transfer browser"),
-                ("tools", "Tools", "Network utilities"),
                 ("macros", "Macros", "Saved command sequences"),
                 ("vault", "Vault", "Credential management"),
             ])
