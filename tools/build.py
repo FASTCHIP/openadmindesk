@@ -277,28 +277,34 @@ def build_windows_exe() -> None:
     print("Building Windows executable...")
     icon_path = Path("build/windows/openadmindesk.ico")
     write_ico_icon(icon_path)
-    run_command([
-        sys.executable,
-        "-m",
-        "PyInstaller",
-        "--noconfirm",
-        "--clean",
-        "--onefile",
-        "--windowed",
-        "--name",
-        "OpenAdminDesk",
-        "--icon",
-        str(icon_path),
-        "--paths",
-        "src",
-        "--collect-all",
-        "openadmindesk",
-        "--copy-metadata",
-        "openadmindesk",
-        "--add-data", "C:\\Windows\\System32\\freerdp-client3.dll;.",
-        "--add-data", "C:\\Program Files\\FreeRDP\\bin\\*.dll;.",
-        "run.py",
-    ])
+    pyinstaller_args = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm", "--clean", "--onefile", "--windowed",
+        "--name", "OpenAdminDesk",
+        "--icon", str(icon_path),
+        "--paths", "src",
+        "--collect-all", "openadmindesk",
+        "--copy-metadata", "openadmindesk",
+    ]
+
+    # Conditionally add FreeRDP DLLs — skip if not present on build machine
+    freerdp_dll = Path(r"C:\Windows\System32\freerdp-client3.dll")
+    if freerdp_dll.exists():
+        pyinstaller_args.extend([
+            "--add-data",
+            r"C:\Windows\System32\freerdp-client3.dll;.",
+        ])
+
+    freerdp_bin = Path(r"C:\Program Files\FreeRDP\bin")
+    if freerdp_bin.exists() and any(freerdp_bin.glob("*.dll")):
+        pyinstaller_args.extend([
+            "--add-data",
+            r"C:\Program Files\FreeRDP\bin\*.dll;.",
+        ])
+
+    pyinstaller_args.append("run.py")
+    run_command(pyinstaller_args)
+
     artifact = Path("dist/OpenAdminDesk.exe")
     if not artifact.is_file() or artifact.stat().st_size == 0:
         raise RuntimeError(
