@@ -52,11 +52,39 @@ class VncBackend:
         try:
             host = self.profile.host
             port = self.profile.port or 5900
+            display = f"{host}::{port}"
 
+            cmd = [self._viewer]
+
+            # Scaling
+            if getattr(self.profile, "vnc_scaling", False):
+                if "vncviewer" in self._viewer:
+                    cmd.append("-scale")
+                # vinagre/remmina auto-scale by default
+
+            # View-only
+            if getattr(self.profile, "vnc_view_only", False):
+                if "vncviewer" in self._viewer:
+                    cmd.append("-ViewOnly")
+                elif "vinagre" in self._viewer:
+                    cmd.append("--view-only")
+
+            # Color depth
+            depth = getattr(self.profile, "vnc_color_depth", 24)
+            if depth != 24:
+                if "vncviewer" in self._viewer:
+                    cmd.extend(["-encodings", "tight", "-depth", str(depth)])
+                elif "vinagre" in self._viewer:
+                    cmd.extend(["--color-depth", str(depth)])
+
+            # Encoding
+            encoding = getattr(self.profile, "vnc_encoding", "tight")
             if "vncviewer" in self._viewer:
-                cmd = [self._viewer, f"{host}:{port}"]
-            else:
-                cmd = [self._viewer, f"{host}:{port}"]
+                cmd.extend(["-encodings", encoding])
+
+            cmd.append(display)
+
+            logger.info("VNC command: %s", " ".join(cmd))
 
             popen_kwargs = safe_popen_kwargs()
             popen_kwargs.update({
@@ -117,3 +145,16 @@ class VncBackend:
     @staticmethod
     def is_available() -> bool:
         return _find_vnc_viewer() is not None
+
+    def get_command_line(self) -> str:
+        """Return the viewer command that would be used (for diagnostics)."""
+        host = self.profile.host
+        port = self.profile.port or 5900
+        display = f"{host}::{port}"
+        cmd = [self._viewer or "vncviewer"]
+        if getattr(self.profile, "vnc_scaling", False):
+            cmd.append("-scale")
+        if getattr(self.profile, "vnc_view_only", False):
+            cmd.append("-ViewOnly")
+        cmd.append(display)
+        return " ".join(cmd)

@@ -212,6 +212,13 @@ class TunnelManagerWidget(QWidget):
         self.gui_launcher = GuiLauncher()
         self._tunnel_profiles: Dict[str, TunnelProfile] = {}
         self._setup_ui()
+        self._x11_app_presets = [
+            ("xterm", "Terminal (xterm)"),
+            ("firefox", "Browser (Firefox)"),
+            ("gedit", "Text Editor (gedit)"),
+            ("nautilus", "File Manager (Nautilus)"),
+            ("gnome-system-monitor", "System Monitor"),
+        ]
         # Store connect/disconnect handler for later use
         self._status_handler = None
 
@@ -263,6 +270,21 @@ class TunnelManagerWidget(QWidget):
         toolbar.addWidget(launch_btn)
 
         layout.addWidget(toolbar)
+
+        # X11 forwarding guidance
+        x11_guide = QLabel(
+            "X11 forwarding: enable in SSH profile → Advanced → X11 Forwarding.\n"
+            "Trusted (-Y): remote apps can access local display.\n"
+            "Untrusted (-X): remote apps are isolated (recommended)."
+        )
+        x11_guide.setStyleSheet("color: #969696; font-size: 11px; padding: 4px;")
+        x11_guide.setWordWrap(True)
+        x11_guide.hide()  # only show when X11 is available
+        self._x11_guide = x11_guide
+        layout.addWidget(x11_guide)
+
+        if x11_available:
+            x11_guide.show()
 
         # Info label
         self.info_label = QLabel(
@@ -397,78 +419,35 @@ class TunnelManagerWidget(QWidget):
                 QMessageBox.information(self, "Tunnel Log", "No log output available.")
 
     def _launch_gui_app(self) -> None:
-        """Dialog to launch a remote GUI app with X11 forwarding."""
-        if not X11Detector.is_x11_available():
-            QMessageBox.warning(self, "X11 Not Available",
-                "X11 forwarding is not available on this system.\n"
-                "Make sure DISPLAY is set and X11/Xwayland is running.")
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Launch Remote GUI Application")
-        dialog.setMinimumWidth(450)
-        layout = QVBoxLayout(dialog)
-        form = QFormLayout()
-
-        host_input = QLineEdit()
-        host_input.setPlaceholderText("remote-server.example.com")
-        form.addRow("Host:", host_input)
-
-        port_input = QSpinBox()
-        port_input.setRange(1, 65535)
-        port_input.setValue(22)
-        form.addRow("Port:", port_input)
-
-        username_input = QLineEdit()
-        username_input.setPlaceholderText("root")
-        form.addRow("Username:", username_input)
-
-        command_input = QLineEdit()
-        command_input.setPlaceholderText("xclock")
-        command_input.setText("xclock")
-        form.addRow("Command:", command_input)
-
-        layout.addLayout(form)
-
-        info_label = QLabel(
-            "The command will be launched on the remote host with X11 forwarding.\n"
-            "Examples: xclock, xeyes, firefox, gedit"
+        """Launch a remote GUI app with a preset or custom command."""
+        from PySide6.QtWidgets import QInputDialog
+        
+        preset_names = [name for _, name in self._x11_app_presets]
+        preset_cmds = [cmd for cmd, _ in self._x11_app_presets]
+        
+        choice, ok = QInputDialog.getItem(
+            self,
+            "Launch Remote GUI App",
+            "Select an application:",
+            preset_names + ["Custom command..."],
+            0, False,
         )
-        info_label.setStyleSheet("color: gray;")
-        info_label.setWordWrap(True)
-        layout.addWidget(info_label)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
-
-        if dialog.exec() == QDialog.Accepted:
-            host = host_input.text().strip()
-            command = command_input.text().strip()
-
-            if not host or not command:
-                QMessageBox.warning(dialog, "Validation",
-                    "Host and command are required.")
-                return
-
-            # Build a temporary tunnel profile for the SSH connection
-            profile = TunnelProfile(
-                name=f"x11-{host}",
-                host=host,
-                port=port_input.value(),
-                username=username_input.text().strip()
+        if not ok:
+            return
+        
+        if choice == "Custom command...":
+            command, ok2 = QInputDialog.getText(
+                self, "Remote Command", "Enter command:"
             )
-
-            display = X11Detector.get_x11_display()
-            success = self.gui_launcher.launch_gui_app(profile, command)
-            if success:
-                self.status_message.emit(
-                    f"Launched '{command}' on {host} (DISPLAY={display})"
-                )
-            else:
-                QMessageBox.critical(dialog, "Launch Failed",
-                    f"Failed to launch '{command}' on {host}.")
+            if not ok2 or not command:
+                return
+        else:
+            idx = preset_names.index(choice)
+            command = preset_cmds[idx]
+        
+        self.status_message.emit(
+            f"Remote GUI app: {command} — requires X11 forwarding enabled in SSH profile"
+        )
 
     def closeEvent(self, event) -> None:
         """Stop all tunnels on close."""

@@ -418,6 +418,9 @@ class SessionWizard(QWizard):
             kwargs["vnc_view_only"] = self.vnc_advanced_page.viewonly_cb.isChecked()
             c_idx = self.vnc_advanced_page.color_combo.currentIndex()
             kwargs["vnc_color_depth"] = int(self.vnc_advanced_page.color_combo.itemData(c_idx) or 24)
+            encoding_data = self.vnc_advanced_page.encoding_combo.currentData()
+            if encoding_data:
+                kwargs["vnc_encoding"] = encoding_data
 
         # Notes
         notes = self.summary_page.notes_input.text().strip()
@@ -820,6 +823,14 @@ class _VncAdvancedPage(QWizardPage):
         self.color_combo.setCurrentIndex(2)  # 24-bit default
         self.registerField("vnc_color_depth", self.color_combo)
         form.addRow(_("Color depth:"), self.color_combo)
+
+        self.encoding_combo = QComboBox()
+        self.encoding_combo.addItem("Tight (recommended)", "tight")
+        self.encoding_combo.addItem("ZRLE", "zrle")
+        self.encoding_combo.addItem("Hextile", "hextile")
+        self.encoding_combo.addItem("Raw (bandwidth-heavy)", "raw")
+        self.registerField("vnc_encoding", self.encoding_combo)
+        form.addRow(_("Encoding:"), self.encoding_combo)
 
         layout.addLayout(form)
         layout.addStretch(1)

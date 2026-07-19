@@ -2264,9 +2264,42 @@ Reviewer PASS — all changes accepted. No further changes requested.
 - ✅ No real process or network used in tests
 - ✅ `git diff --check` clean
 
+
 ---
 
-## 2026-07-14 (Phase 9.8: Passive periodic vault auto-lock UI timer/tests)
+## 2026-07-19 (Gap Phase 7 — VNC + X11 Maturity)
+
+### Implementation
+
+1. **VNC backend** (`vnc_backend.py`):
+   - `connect()` now passes profile options to viewer: scaling (-scale), view-only (-ViewOnly), color depth (-depth), encoding (-encodings)
+   - Added `get_command_line()` for diagnostics
+   - Viewer-specific flags (vncviewer/vinagre/remmina)
+
+2. **VNC session tab** (`vnc_session_tab.py`):
+   - Shows active VNC options in info panel before connecting
+   - Displays viewer name and parsed options (scaling, view-only, depth)
+   - Error diagnostics from stderr capture
+
+3. **Session wizard** (`session_wizard.py`):
+   - Added encoding combo (Tight, ZRLE, Hextile, Raw) to VNC advanced page
+   - vnc_encoding wired through collectProfileData into profile/backend
+
+4. **X11 forwarding** (`tunnel_manager.py`):
+   - X11 forwarding guidance shown when X11 available (trusted -Y vs untrusted -X)
+   - Remote GUI app presets: xterm, firefox, gedit, nautilus, gnome-system-monitor
+   - Simplified launch flow with presets + custom command input
+
+### Files Changed
+
+- `src/openadmindesk/core/vnc_backend.py` — profile options → viewer command
+- `src/openadmindesk/ui/vnc_session_tab.py` — options display + diagnostics
+- `src/openadmindesk/ui/session_wizard.py` — VNC encoding combo
+- `src/openadmindesk/ui/tunnel_manager.py` — X11 guidance + app presets
+- `docs/WORKLOG.md` — this entry
+
+No commit or push performed.
+
 
 ### Plan
 

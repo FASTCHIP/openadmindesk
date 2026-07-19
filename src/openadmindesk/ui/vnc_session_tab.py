@@ -85,6 +85,19 @@ class VncSessionTab(QWidget):
         self.status_label.setText(_("● Connecting..."))
         self.status_label.setStyleSheet(_STATUS_COLORS["connecting"])
 
+        # Show VNC options being used
+        options = []
+        if getattr(self.profile, "vnc_scaling", False):
+            options.append("scaling=on")
+        if getattr(self.profile, "vnc_view_only", False):
+            options.append("view-only")
+        depth = getattr(self.profile, "vnc_color_depth", 24)
+        if depth != 24:
+            options.append(f"depth={depth}")
+        viewer = self.backend._viewer or "vncviewer"
+        diag = f"Viewer: {viewer}\nOptions: {', '.join(options) if options else 'default'}"
+        self.info_text.setPlainText(diag)
+
         success = self.backend.connect()
         if success:
             self._connected = True
@@ -92,11 +105,14 @@ class VncSessionTab(QWidget):
             self.status_label.setStyleSheet(_STATUS_COLORS["connected"])
             self.connect_button.setText(_("Disconnect"))
             self.connect_button.setEnabled(True)
-            self.info_text.setPlainText("VNC session active.")
+            self.info_text.append("\nVNC session active.")
         else:
             self.status_label.setText(_("● Connection Failed"))
             self.status_label.setStyleSheet(_STATUS_COLORS["disconnected"])
             self.connect_button.setEnabled(True)
+            error = self.backend.last_error()
+            if error:
+                self.info_text.append(f"\nError: {error[:300]}")
 
     def _disconnect(self) -> None:
         self.backend.disconnect()
