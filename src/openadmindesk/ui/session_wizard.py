@@ -206,14 +206,33 @@ class SessionWizard(QWizard):
         credential_id = profile.credential_id
         password = profile.password
 
-        # If password entered but vault is absent or locked, show error
+        # If password entered but vault is absent or locked, ask user
         if password and (not self.vault or not self.vault.is_unlocked()):
-            QMessageBox.critical(
+            reply = QMessageBox.question(
                 self,
-                _("Vault Required"),
-                _("A vault is required to save passwords. Please unlock the vault first.")
+                _("Vault Locked"),
+                _("This profile has a password that needs the vault.\nThe vault is currently locked."),
+                _("Unlock Vault"),
+                _("Save Without Password"),
+                _("Cancel"),
+                0,
             )
-            return
+            if reply == 0:  # Unlock
+                from PySide6.QtWidgets import QInputDialog
+                pwd, ok = QInputDialog.getText(
+                    self, _("Unlock Vault"),
+                    _("Enter master password:"),
+                    QLineEdit.Password,
+                )
+                if ok and pwd and self.vault.unlock(pwd):
+                    self.accept()
+                elif ok:
+                    QMessageBox.warning(self, _("Error"), _("Wrong password."))
+                return
+            elif reply == 1:  # Save without password
+                profile = replace(profile, credential_id=None, password=None)
+            else:  # Cancel
+                return
 
         # Initialize previous_account for compensation tracking
         previous_account = None
