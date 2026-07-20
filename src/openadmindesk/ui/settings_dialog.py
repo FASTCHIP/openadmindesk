@@ -75,7 +75,8 @@ class SettingsDialog(QDialog):
 
     def _general_tab(self) -> QWidget:
         w = QWidget()
-        form = QFormLayout(w)
+        layout = QVBoxLayout(w)
+        form = QFormLayout()
 
         from openadmindesk.core.l10n import available_languages
         self._lang_combo = QComboBox()
@@ -85,7 +86,54 @@ class SettingsDialog(QDialog):
             if code == self._settings.language:
                 self._lang_combo.setCurrentIndex(self._lang_combo.count() - 1)
         form.addRow(_("Language:"), self._lang_combo)
+        layout.addLayout(form)
 
+        from pathlib import Path
+        import subprocess
+        from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator)
+
+        data_header = QLabel("Data Files")
+        data_header.setStyleSheet("font-weight: bold; font-size: 12px; padding-top: 8px;")
+        layout.addWidget(data_header)
+
+        data_dir = Path.home() / ".local" / "share" / "openadmindesk"
+        config_dir = Path.home() / ".config" / "openadmindesk"
+
+        for label, path in [
+            ("Settings:", data_dir / "settings.json"),
+            ("Profiles DB:", data_dir / "profiles.db"),
+            ("Vault:", data_dir / "vault.json"),
+            ("Logs:", data_dir / "logs"),
+            ("RDP Certs:", config_dir / "rdp_known_certs.json"),
+        ]:
+            row = QHBoxLayout()
+            exists = "✓" if path.exists() else "—"
+            lbl = QLabel(f"  {exists}  {label}  {path}")
+            lbl.setStyleSheet("color: #969696; font-size: 11px; font-family: monospace;")
+            row.addWidget(lbl)
+            row.addStretch()
+            layout.addLayout(row)
+
+        open_btn = QPushButton("Open Data Folder")
+        open_btn.clicked.connect(
+            lambda: subprocess.Popen(
+                ["xdg-open", str(data_dir)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        )
+        layout.addWidget(open_btn)
+
+        note = QLabel("Copy the data folder to take your settings with you.")
+        note.setStyleSheet("color: gray; font-size: 11px;")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        layout.addStretch()
         return w
 
     def _appearance_tab(self) -> QWidget:
