@@ -19,7 +19,7 @@ def _load_build_module():
 def test_project_version_matches_pyproject() -> None:
     build = _load_build_module()
 
-    assert build.project_version() == "0.1.1"
+    assert build.project_version() == "0.1.2"
 
 
 def test_packaging_check_passes() -> None:
