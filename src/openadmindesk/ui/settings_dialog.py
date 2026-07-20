@@ -133,6 +133,52 @@ class SettingsDialog(QDialog):
         note.setStyleSheet("color: gray; font-size: 11px;")
         note.setWordWrap(True)
         layout.addWidget(note)
+
+        # ── Portable mode section ──────────────────────────────────────
+        from openadmindesk.platform.platform_utils import (
+            is_portable, enable_portable_mode, data_dir, _app_dir,
+        )
+
+        separator2 = QFrame()
+        separator2.setFrameShape(QFrame.HLine)
+        separator2.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(separator2)
+
+        pm_header = QLabel("Portable Mode")
+        pm_header.setStyleSheet("font-weight: bold; font-size: 12px; padding-top: 8px;")
+        layout.addWidget(pm_header)
+
+        if is_portable():
+            pm_status = QLabel(f"✓ Portable mode active\nData folder: {data_dir()}")
+            pm_status.setStyleSheet("color: green; font-size: 11px;")
+            pm_status.setWordWrap(True)
+            layout.addWidget(pm_status)
+
+            open_pm_btn = QPushButton("Open Data Folder")
+            open_pm_btn.clicked.connect(
+                lambda: subprocess.Popen(
+                    ["xdg-open", str(data_dir())],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            )
+            layout.addWidget(open_pm_btn)
+        else:
+            pm_status = QLabel("Data stored in: ~/.local/share/openadmindesk")
+            pm_status.setStyleSheet("color: #969696; font-size: 11px;")
+            layout.addWidget(pm_status)
+
+            pm_desc = QLabel(
+                "Enable portable mode to store all data next to the application.\n"
+                "This allows taking your profiles and settings on a USB drive."
+            )
+            pm_desc.setStyleSheet("color: gray; font-size: 11px;")
+            pm_desc.setWordWrap(True)
+            layout.addWidget(pm_desc)
+
+            enable_btn = QPushButton("Enable Portable Mode")
+            enable_btn.clicked.connect(self._enable_portable)
+            layout.addWidget(enable_btn)
+
         layout.addStretch()
         return w
 
@@ -356,6 +402,55 @@ class SettingsDialog(QDialog):
 
         self._store.save(s)
         self.accept()
+
+    def _enable_portable(self) -> None:
+        """Enable portable mode — copy data and create .portable marker."""
+        from openadmindesk.platform.platform_utils import (
+            enable_portable_mode, data_dir,
+        )
+        from pathlib import Path
+        import shutil
+
+        reply = QMessageBox.question(
+            self,
+            "Enable Portable Mode",
+            "This will copy all your profiles, vault, and settings to a 'data/' "
+            "folder next to the application.\n\nContinue?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        enable_portable_mode()
+        target = data_dir()
+
+        # Copy existing data files
+        src_base = Path.home() / ".local" / "share" / "openadmindesk"
+        files_to_copy = ["profiles.db", "vault.json", "settings.json"]
+        logs_dir = src_base / "logs"
+
+        copied = 0
+        for fname in files_to_copy:
+            src = src_base / fname
+            if src.exists():
+                shutil.copy2(src, target / fname)
+                copied += 1
+
+        # Copy logs if any
+        if logs_dir.exists():
+            for log_file in logs_dir.iterdir():
+                if log_file.is_file():
+                    shutil.copy2(log_file, target / "logs" / log_file.name)
+
+        QMessageBox.information(
+            self,
+            "Portable Mode Enabled",
+            f"Portable mode is now active.\n\n"
+            f"Data folder: {target}\n"
+            f"Files copied: {copied}\n\n"
+            f"Please restart the application for the change to take full effect.",
+        )
+        self.reject()  # Close settings — user needs to restart
 
     # ── result ────────────────────────────────────────────────────────────────
 
