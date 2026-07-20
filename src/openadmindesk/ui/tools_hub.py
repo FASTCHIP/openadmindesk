@@ -5,15 +5,15 @@ from __future__ import annotations
 import socket
 import urllib.request
 import urllib.error
-import subprocess
+import urllib.parse
 from typing import Optional
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
-    QScrollArea, QMessageBox, QFrame, QDialog, QFormLayout,
+    QScrollArea, QFrame, QDialog, QFormLayout,
     QLineEdit, QPlainTextEdit, QDialogButtonBox,
 )
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QThread, Signal
 
 
 class _ToolRunner(QThread):

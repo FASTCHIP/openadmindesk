@@ -136,7 +136,7 @@ class SettingsDialog(QDialog):
 
         # ── Portable mode section ──────────────────────────────────────
         from openadmindesk.platform.platform_utils import (
-            is_portable, enable_portable_mode, data_dir, _app_dir,
+            is_portable, data_dir,
         )
 
         separator2 = QFrame()

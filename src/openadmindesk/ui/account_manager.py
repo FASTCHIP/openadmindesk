@@ -17,10 +17,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QDialog,
-    QSpinBox,
-    QComboBox,
     QDialogButtonBox,
-    QFileDialog,
 )
 from PySide6.QtCore import Qt, Signal
 from typing import Optional
