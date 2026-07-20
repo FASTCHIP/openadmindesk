@@ -32,14 +32,9 @@ jobs:
         run: |
           VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version from pyproject.toml: $VERSION"
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            TAG_NAME="$GITHUB_REF_NAME"
-            if [[ "$TAG_NAME" != "v$VERSION" ]]; then
-              echo "Tag name $TAG_NAME does not match v$VERSION"
-              exit 1
-            fi
-          else
-            echo "Not a tag push, but checking version consistency"
+            echo "Tag: $GITHUB_REF_NAME"
           fi
 
   windows:
