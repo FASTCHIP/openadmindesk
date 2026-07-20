@@ -208,9 +208,6 @@ class MainWindow(QMainWindow):
 
         # Create tools hub widget
         self._tools_hub = ToolsHub()
-        self._tools_hub.launch_requested.connect(
-            lambda cmd: self.connection_event_area.showMessage(f"Tool: {cmd}", 3000)
-        )
         self.activity_rail.set_tools_widget(self._tools_hub)
 
         main_layout.addWidget(self.activity_rail)
