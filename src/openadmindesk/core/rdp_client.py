@@ -11,6 +11,7 @@ import json
 import logging
 import queue
 import threading
+import traceback
 from pathlib import Path
 from ctypes import (
     c_void_p, c_char_p, c_bool, c_uint16, c_uint32,
@@ -439,71 +440,112 @@ class _RdpWorker(QObject):
 
     def run(self):
         """Load FreeRDP symbols, create context, connect, and run event loop."""
+        logger.info("RDP worker: starting connection to %s:%s",
+                    self._profile.host, self._profile.port)
         lib = self._library.lib
         if lib is None:
-            self.error_occurred.emit("FreeRDP library not loaded")
+            msg = "FreeRDP library not loaded — install libfreerdp-client3"
+            logger.error("RDP: %s", msg)
+            self.error_occurred.emit(msg)
             self.finished.emit()
             return
 
-        freerdp_new = _resolve_symbol(lib, "freerdp_client_context_new",
-                                      restype=ctypes.c_void_p,
-                                      argtypes=[c_int])
-        freerdp_free = _resolve_symbol(lib, "freerdp_client_context_free",
-                                       restype=None,
-                                       argtypes=[ctypes.c_void_p])
-        freerdp_connect = _resolve_symbol(lib, "freerdp_connect",
-                                          restype=c_int,
-                                          argtypes=[ctypes.c_void_p])
-        freerdp_start = _resolve_symbol(lib, "freerdp_client_start",
-                                        restype=c_int,
-                                        argtypes=[ctypes.c_void_p])
-        freerdp_stop = _resolve_symbol(lib, "freerdp_client_stop",
-                                       restype=c_int,
-                                       argtypes=[ctypes.c_void_p])
-        freerdp_disconnect = _resolve_symbol(lib, "freerdp_disconnect",
-                                             restype=c_int,
-                                             argtypes=[ctypes.c_void_p])
+        try:
+            freerdp_new = _resolve_symbol(lib, "freerdp_client_context_new",
+                                          restype=ctypes.c_void_p,
+                                          argtypes=[c_int])
+            freerdp_free = _resolve_symbol(lib, "freerdp_client_context_free",
+                                           restype=None,
+                                           argtypes=[ctypes.c_void_p])
+            freerdp_connect = _resolve_symbol(lib, "freerdp_connect",
+                                              restype=c_int,
+                                              argtypes=[ctypes.c_void_p])
+            freerdp_start = _resolve_symbol(lib, "freerdp_client_start",
+                                            restype=c_int,
+                                            argtypes=[ctypes.c_void_p])
+            freerdp_stop = _resolve_symbol(lib, "freerdp_client_stop",
+                                           restype=c_int,
+                                           argtypes=[ctypes.c_void_p])
+            freerdp_disconnect = _resolve_symbol(lib, "freerdp_disconnect",
+                                                 restype=c_int,
+                                                 argtypes=[ctypes.c_void_p])
 
-        if not all([freerdp_new, freerdp_free, freerdp_connect,
-                    freerdp_start, freerdp_stop, freerdp_disconnect]):
-            self.error_occurred.emit(
-                "Required FreeRDP symbols missing in loaded library"
-            )
-            self.finished.emit()
-            return
+            if not all([freerdp_new, freerdp_free, freerdp_connect,
+                        freerdp_start, freerdp_stop, freerdp_disconnect]):
+                missing = [name for name, sym in [
+                    ("freerdp_client_context_new", freerdp_new),
+                    ("freerdp_client_context_free", freerdp_free),
+                    ("freerdp_connect", freerdp_connect),
+                    ("freerdp_client_start", freerdp_start),
+                    ("freerdp_client_stop", freerdp_stop),
+                    ("freerdp_disconnect", freerdp_disconnect),
+                ] if sym is None]
+                msg = f"FreeRDP symbols not found: {', '.join(missing)}"
+                logger.error("RDP: %s", msg)
+                self.error_occurred.emit(msg)
+                self.finished.emit()
+                return
 
-        ctx = freerdp_new(1)
-        if not ctx:
-            self.error_occurred.emit("freerdp_client_context_new returned NULL")
-            self.finished.emit()
-            return
+            logger.debug("RDP: creating context")
+            ctx = freerdp_new(1)
+            if not ctx:
+                msg = "FreeRDP: freerdp_client_context_new returned NULL"
+                logger.error("RDP: %s", msg)
+                self.error_occurred.emit(msg)
+                self.finished.emit()
+                return
 
-        self._context = ctx
-        self._configure_settings(ctx, lib)
-        self._register_cert_verify_callback(ctx, lib)
-        self._register_callbacks(ctx, lib)
- 
-        rc = freerdp_connect(ctx)
+            self._context = ctx
+            logger.debug("RDP: settings configuration")
+            self._configure_settings(ctx, lib)
+            logger.debug("RDP: registering callbacks")
+            self._register_cert_verify_callback(ctx, lib)
+            self._register_callbacks(ctx, lib)
 
-        if rc != 0:
-            self.error_occurred.emit(f"RDP connection failed (code {rc})")
-            self._cleanup(freerdp_disconnect, freerdp_free)
-            self.finished.emit()
-            return
-
-        self.connected.emit()
-
-        while not self._stop_requested:
-            self._flush_input()
-            rc = freerdp_start(ctx)
+            logger.info("RDP: connecting to %s:%s",
+                        self._profile.host, self._profile.port)
+            rc = freerdp_connect(ctx)
             if rc != 0:
-                break
-            QThread.msleep(10)
+                msg = (f"RDP connection failed (error code {rc}). "
+                       f"Target: {self._profile.host}:{self._profile.port}. "
+                       f"Check host, port, NLA settings, and credentials.")
+                logger.error("RDP: %s", msg)
+                self.error_occurred.emit(msg)
+                self._cleanup(freerdp_disconnect, freerdp_free)
+                self.finished.emit()
+                return
 
-        freerdp_stop(ctx)
-        self._cleanup(freerdp_disconnect, freerdp_free)
-        self.disconnected.emit()
-        self.finished.emit()
+            self.connected.emit()
+            logger.info("RDP: connected successfully")
+
+            logger.debug("RDP: entering event loop")
+            while not self._stop_requested:
+                self._flush_input()
+                rc = freerdp_start(ctx)
+                if rc != 0:
+                    logger.warning("RDP: event loop exit (rc=%s)", rc)
+                    break
+                QThread.msleep(10)
+
+            logger.info("RDP: disconnecting")
+            freerdp_stop(ctx)
+            self._cleanup(freerdp_disconnect, freerdp_free)
+            self.disconnected.emit()
+            logger.info("RDP: disconnected")
+
+        except Exception as e:
+            msg = f"RDP worker error: {e}"
+            logger.error("RDP: %s\n%s", msg, traceback.format_exc())
+            self.error_occurred.emit(msg)
+            if self._context is not None:
+                try:
+                    freerdp_free(self._context)
+                except Exception:
+                    pass
+                self._context = None
+
+        finally:
+            self.finished.emit()
 
     def request_stop(self):
         self._stop_requested = True
