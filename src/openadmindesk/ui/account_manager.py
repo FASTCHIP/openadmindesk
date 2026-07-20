@@ -55,17 +55,8 @@ class AccountDialog(QDialog):
         form = QFormLayout()
 
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("My Server Credentials")
+        self.name_input.setPlaceholderText("My Credentials")
         form.addRow(_("Name:"), self.name_input)
-
-        self.host_input = QLineEdit()
-        self.host_input.setPlaceholderText("server.example.com")
-        form.addRow(_("Host:"), self.host_input)
-
-        self.port_input = QSpinBox()
-        self.port_input.setRange(1, 65535)
-        self.port_input.setValue(22)
-        form.addRow(_("Port:"), self.port_input)
 
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("root")
@@ -75,26 +66,6 @@ class AccountDialog(QDialog):
         self.password_input.setEchoMode(QLineEdit.Password)
         self.password_input.setPlaceholderText("Optional password")
         form.addRow(_("Password:"), self.password_input)
-
-        self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText(_("Paste key content or Browse..."))
-        key_browse = QPushButton(_("Browse..."))
-        key_browse.clicked.connect(self._browse_key_file)
-        key_row = QWidget()
-        key_row_layout = QHBoxLayout(key_row)
-        key_row_layout.setContentsMargins(0, 0, 0, 0)
-        key_row_layout.addWidget(self.key_input)
-        key_row_layout.addWidget(key_browse)
-        form.addRow(_("Private Key:"), key_row)
-
-        self.key_passphrase_input = QLineEdit()
-        self.key_passphrase_input.setEchoMode(QLineEdit.Password)
-        self.key_passphrase_input.setPlaceholderText(_("Optional passphrase"))
-        form.addRow(_("Key Passphrase:"), self.key_passphrase_input)
-
-        self.service_type = QComboBox()
-        self.service_type.addItems(["ssh", "sftp", "telnet", "rdp"])
-        form.addRow(_("Service Type:"), self.service_type)
 
         layout.addLayout(form)
 
@@ -108,49 +79,18 @@ class AccountDialog(QDialog):
         """Load account data into form fields."""
         if self.account:
             self.name_input.setText(self.account.name)
-            self.host_input.setText(self.account.host)
-            self.port_input.setValue(self.account.port)
             self.username_input.setText(self.account.username)
             self.password_input.setText(self.account.password or "")
-            # Show placeholder for private key (don't expose content)
-            if self.account.private_key:
-                self.key_input.setText("•••••• (stored)")
-                self.key_input.setToolTip("Key is stored encrypted. Paste new key to replace.")
-            if self.account.private_key_passphrase:
-                self.key_passphrase_input.setText("•••••• (stored)")
-                self.key_passphrase_input.setToolTip("Passphrase stored encrypted. Enter new to replace.")
-            idx = self.service_type.findText(self.account.service_type)
-            if idx >= 0:
-                self.service_type.setCurrentIndex(idx)
 
-    def _browse_key_file(self) -> None:
-        """Open file dialog to load an SSH private key into the account."""
-        path, selected_filter = QFileDialog.getOpenFileName(
-            self,
-            _("Select SSH Private Key"),
-            "",
-            _("SSH Keys (*.pem *.key id_*);;All Files (*)")
-        )
-        if path:
-            try:
-                with open(path, "r") as f:
-                    content = f.read()
-                self.key_input.setText(content)
-                self.key_input.setToolTip(f"Loaded from {path}")
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Failed to read key file:\n{e}")
+
 
     def _validate_and_accept(self) -> None:
         """Validate form and accept if valid."""
         name = self.name_input.text().strip()
-        host = self.host_input.text().strip()
         username = self.username_input.text().strip()
 
         if not name:
             QMessageBox.warning(self, _("Validation"), _("Name is required."))
-            return
-        if not host:
-            QMessageBox.warning(self, _("Validation"), _("Host is required."))
             return
         if not username:
             QMessageBox.warning(self, _("Validation"), _("Username is required."))
@@ -162,26 +102,8 @@ class AccountDialog(QDialog):
         """Get account from dialog data."""
         acct = self.account
         acct.name = self.name_input.text().strip()
-        acct.host = self.host_input.text().strip()
-        acct.port = self.port_input.value()
         acct.username = self.username_input.text().strip()
         acct.password = self.password_input.text() or None
-
-        # Save private key content if user provided new one (not placeholder)
-        key_text = self.key_input.text().strip()
-        if key_text and not key_text.startswith("••••••"):
-            acct.private_key = key_text
-        elif not key_text:
-            acct.private_key = None
-
-        # Save passphrase if user provided new one
-        pass_text = self.key_passphrase_input.text()
-        if pass_text and not pass_text.startswith("••••••"):
-            acct.private_key_passphrase = pass_text
-        elif not pass_text:
-            acct.private_key_passphrase = None
-
-        acct.service_type = self.service_type.currentText()
         return acct
 
 
