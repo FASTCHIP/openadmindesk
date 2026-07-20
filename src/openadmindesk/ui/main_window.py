@@ -89,6 +89,7 @@ class MainWindow(QMainWindow):
 
         # Vault auto-lock polling timer
         self._last_vault_unlocked = self.vault_manager.is_unlocked()
+        self._last_unlock_time: float = 0.0
         self._vault_lock_timer = QTimer(self)
         self._vault_lock_timer.setInterval(VAULT_POLL_INTERVAL_MS)
         self._vault_lock_timer.timeout.connect(self._poll_vault_lock_state)
@@ -96,6 +97,9 @@ class MainWindow(QMainWindow):
 
         # First-run: prompt to set up vault if none exists
         QTimer.singleShot(500, self._maybe_prompt_first_vault_setup)
+
+        # Startup vault unlock prompt
+        QTimer.singleShot(1500, self._maybe_prompt_vault_unlock_on_startup)
 
     def _maybe_prompt_first_vault_setup(self) -> None:
         """If no vault exists, offer to set one up on first run."""
@@ -109,6 +113,21 @@ class MainWindow(QMainWindow):
             )
             if reply == QMessageBox.Yes:
                 self._setup_vault()
+
+    def _maybe_prompt_vault_unlock_on_startup(self) -> None:
+        """Prompt to unlock vault on startup if setting enabled."""
+        if not getattr(self._app_settings, "prompt_master_password_on_startup", True):
+            return
+        if not os.path.exists(self.vault_manager.vault_path):
+            return
+        if self.vault_manager.is_unlocked():
+            return
+        reply = QMessageBox.question(
+            self, "Vault Locked",
+            "The vault is locked. Unlock now to access saved credentials?",
+        )
+        if reply == QMessageBox.Yes:
+            self._unlock_vault()
 
     def _connect_signals(self) -> None:
         """Wire up signals between components."""
@@ -599,9 +618,22 @@ class MainWindow(QMainWindow):
 
     def _poll_vault_lock_state(self) -> None:
         """Periodic check for vault auto-lock transitions."""
+        import time
         unlocked = self.vault_manager.is_unlocked()
+        
+        if unlocked and self._last_unlock_time > 0:
+            lock_minutes = getattr(self._app_settings, "vault_auto_lock_minutes", 15)
+            if lock_minutes > 0:
+                elapsed = time.time() - self._last_unlock_time
+                if elapsed >= lock_minutes * 60:
+                    self.vault_manager.lock()
+                    unlocked = False
+                    self._last_unlock_time = 0.0
+                    self.connection_event_area.showMessage(
+                        "Vault auto-locked after inactivity", 5000
+                    )
+        
         if self._last_vault_unlocked and not unlocked:
-            # Transition unlocked → locked (auto-lock)
             self.connection_event_area.showMessage("Vault auto-locked", 5000)
         self._update_vault_menu()
         self._last_vault_unlocked = unlocked
@@ -662,6 +694,8 @@ class MainWindow(QMainWindow):
             if ok and password:
                 if self.vault_manager.unlock(password):
                     self._last_vault_unlocked = True
+                    import time
+                    self._last_unlock_time = time.time()
                     self.connection_event_area.showMessage("Vault unlocked", 3000)
                     self._update_vault_menu()
                 else:
@@ -672,6 +706,7 @@ class MainWindow(QMainWindow):
         """Lock the vault."""
         self.vault_manager.lock()
         self._last_vault_unlocked = False
+        self._last_unlock_time = 0.0
         self.connection_event_area.showMessage("Vault locked", 3000)
         self._update_vault_menu()
 
