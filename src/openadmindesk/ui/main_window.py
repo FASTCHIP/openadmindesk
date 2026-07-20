@@ -69,6 +69,7 @@ class MainWindow(QMainWindow):
             self._app_settings.window_width,
             self._app_settings.window_height,
         )
+        self.setMinimumSize(800, 600)
 
         # Broadcast mode
         self.broadcast_mode = False

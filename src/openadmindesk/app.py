@@ -50,6 +50,10 @@ def main() -> int:
     if args.portable:
         enable_portable_mode()
 
+    from PySide6.QtCore import Qt
+    QApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
     apply_theme(app)
     window = create_main_window()
