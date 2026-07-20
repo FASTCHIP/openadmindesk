@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QLineEdit,
+    QMessageBox,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,

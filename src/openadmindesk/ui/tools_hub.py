@@ -9,8 +9,7 @@ import urllib.parse
 from typing import Optional
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
-    QScrollArea, QFrame, QDialog, QFormLayout,
+    QWidget, QVBoxLayout, QLabel, QPushButton, QScrollArea, QFrame, QDialog, QFormLayout,
     QLineEdit, QPlainTextEdit, QDialogButtonBox,
 )
 from PySide6.QtCore import QThread, Signal
