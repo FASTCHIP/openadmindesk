@@ -3652,3 +3652,29 @@ The result used two bounded passes (dependency declaration, then workflow and te
 
 No commit or push performed.
 
+---
+
+## 2026-07-21 (Phase 11 published CI result)
+
+### Publication
+- Pushed clean baseline to `main` branch.
+- Verified GitHub Actions CI run for commit `dd5d828e9cac88d6d18c071bcb23ef3f308b77f3`.
+
+### GitHub Actions evidence
+- **Run ID**: `29855190951` (Run #80)
+- **URL**: `https://github.com/FASTCHIP/openadmindesk/actions/runs/29855190951`
+- **Jobs**:
+  - `lint-and-test (3.12)` (ID `88717649366`): SUCCESS (Ruff, pytest, imports)
+  - `build-check` (ID `88717921744`): SUCCESS (poetry build, package structure)
+- **Local Status**: Clean `main...origin/main` after push.
+
+### Phase status
+- Phase 11 item "publish reviewed changes and confirm actual GitHub CI green" is complete.
+- Phase 11 overall remains **active** as immutable tag and release artifacts are pending.
+
+### Remaining work
+- Bump version and create a new immutable tag.
+- Verify actual release artifacts on GitHub runners.
+
+*Note: Existing `v0.1.3` was not moved or rewritten; no new release or tag was created in this pass.*
+

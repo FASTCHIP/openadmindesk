@@ -314,7 +314,7 @@ Goal: restore a verifiable CI/CD pipeline and synchronize project versioning bef
 - [x] prove direct imports after exact `poetry install --with dev`;
 - [x] centralize application version and eliminate stale `__version__ = 0.1.0` duplicate (hardcoded duplicate eliminated and metadata/pyproject resolver tested);
 - [x] add workflow validation/actionlint or equivalent and ensure CI Ruff covers `src tools tests` (evidence: explicit PyYAML + parsed YAML semantic contract tests, pinned Poetry, lock checks both jobs, Ruff src tools tests);
-- [ ] publish reviewed changes and confirm actual GitHub CI green (do not mark done);
+- [x] publish reviewed changes and confirm actual GitHub CI green (Commit: dd5d828, Run: 29855190951);
 - [ ] bump version and create a new immutable tag; never rewrite v0.1.3;
 - [ ] verify actual release artifacts on GitHub runners.
 
