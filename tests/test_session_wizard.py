@@ -312,10 +312,11 @@ def test_no_plaintext_password_in_profile_when_vault_used(tmp_path) -> None:
     assert saved_profile.use_ssh_agent is True
 
 
-def test_session_wizard_save_password_no_vault(tmp_path) -> None:
+def test_session_wizard_save_password_no_vault(tmp_path, monkeypatch) -> None:
     """Test that saving password without vault fails gracefully."""
     store = ProfileStore(str(tmp_path / "profiles.db"))
     wizard = SessionWizard(store)
+    monkeypatch.setattr(wizard, "_ask_vault_action", lambda: "cancel")
 
     wizard.protocol_page._select(SessionType.SSH)
     wizard.connection_page.name_input.setText("No Vault SSH")
@@ -333,9 +334,10 @@ def test_session_wizard_save_password_no_vault(tmp_path) -> None:
     wizard.accept()
     saved_profile = wizard.created_profile()
     assert saved_profile is None  # Should not save profile
+    assert store.load_all_profiles() == []
 
 
-def test_session_wizard_save_password_locked_vault(tmp_path) -> None:
+def test_session_wizard_save_password_locked_vault(tmp_path, monkeypatch) -> None:
     """Test that saving password with locked vault fails gracefully."""
     from openadmindesk.core.vault_manager import VaultManager
 
@@ -344,6 +346,7 @@ def test_session_wizard_save_password_locked_vault(tmp_path) -> None:
     assert vault.setup_master_password("secret-passphrase")
     # Do NOT unlock vault
     wizard = SessionWizard(store, vault=vault)
+    monkeypatch.setattr(wizard, "_ask_vault_action", lambda: "cancel")
 
     wizard.protocol_page._select(SessionType.SSH)
     wizard.connection_page.name_input.setText("Locked Vault SSH")
@@ -361,6 +364,33 @@ def test_session_wizard_save_password_locked_vault(tmp_path) -> None:
     wizard.accept()
     saved_profile = wizard.created_profile()
     assert saved_profile is None  # Should not save profile
+    assert store.load_all_profiles() == []
+
+
+def test_session_wizard_save_without_password_no_vault(tmp_path, monkeypatch) -> None:
+    """Test that saving without password when vault is missing works."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    wizard = SessionWizard(store)
+    monkeypatch.setattr(wizard, "_ask_vault_action", lambda: "save_without_password")
+
+    wizard.protocol_page._select(SessionType.SSH)
+    wizard.connection_page.name_input.setText("No Pass SSH")
+    wizard.connection_page.host_input.setText("no-pass.example.com")
+    wizard.connection_page.port_input.setValue(22)
+    wizard.credential_page.username_input.setText("admin")
+    wizard.credential_page.password_input.setText("some-password")
+
+    wizard.accept()
+    saved_profile = wizard.created_profile()
+    assert saved_profile is not None
+    assert saved_profile.password is None
+    assert saved_profile.credential_id is None
+
+    profiles = store.load_all_profiles()
+    assert len(profiles) == 1
+    persisted = profiles[0]
+    assert persisted.password is None
+    assert persisted.credential_id is None
 
 
 def test_session_wizard_add_account_false(tmp_path) -> None:

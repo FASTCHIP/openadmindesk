@@ -35,6 +35,10 @@ jobs:
           echo "Version from pyproject.toml: $VERSION"
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             echo "Tag: $GITHUB_REF_NAME"
+            if [[ "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+              echo "Error: Tag $GITHUB_REF_NAME does not match project version v$VERSION"
+              exit 1
+            fi
           fi
 
   windows:

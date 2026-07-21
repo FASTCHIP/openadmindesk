@@ -1174,7 +1174,7 @@ files = [
     {file = "packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e"},
     {file = "packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661"},
 ]
-markers = {main = "extra == \"build\" or extra == \"dev\""}
+markers = {main = "extra == \"dev\" or extra == \"build\""}
 
 [[package]]
 name = "paramiko"
@@ -1976,9 +1976,9 @@ files = [
 
 [extras]
 build = ["PyInstaller"]
-dev = ["bandit", "mypy", "pip-audit", "pytest", "pytest-cov", "ruff"]
+dev = ["PyYAML", "bandit", "mypy", "pip-audit", "pytest", "pytest-cov", "ruff"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "e420f31f6e3457a3216551cce1cf2d12bb417849bb4678f6d66a27e00cba90de"
+content-hash = "b6732f78449c8f41c0085db535027818b3b63cdd9d2f4d64cbe808745848d1ed"

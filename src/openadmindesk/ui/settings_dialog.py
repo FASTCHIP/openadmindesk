@@ -410,7 +410,7 @@ class SettingsDialog(QDialog):
             enable_portable_mode, data_dir,
         )
         from pathlib import Path
-        from PySide6.QtWidgets import QMessageBox; import shutil
+        import shutil
 
         reply = QMessageBox.question(
             self,

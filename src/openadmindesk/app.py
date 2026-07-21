@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import importlib.metadata
 import sys
+from openadmindesk import __version__
 
 
 def _version() -> str:
-    """Return installed package version, falling back during source runs."""
-    try:
-        return importlib.metadata.version("openadmindesk")
-    except importlib.metadata.PackageNotFoundError:
-        return "0.1.0"
+    """Return installed package version."""
+    return __version__
 
 
 def _load_gui_dependencies():

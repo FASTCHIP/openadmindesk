@@ -1218,6 +1218,7 @@ This entry implements tasks 9.5a of Phase 9 and 7.1 of Phase 7 from the audit re
 - `poetry run pip-audit` - passed
 
 ---
+
 ## 2026-07-18 (Phase 10.8: RDP tests — mock FreeRDP, headless RdpDisplay)
 
 ### Implementation
@@ -3551,7 +3552,103 @@ All changes in `tools/build.py`:
 
 No commit or push performed.
 
+---
+
+## 2026-07-21 (GitHub Actions recovery and implementation roadmap)
+
+### Baseline
+- Clean main tracking origin/main before work.
+
+### Public evidence
+- CI run 29742896748 failed Ruff;
+- CI run 29738138708 passed Ruff then failed pytest;
+- release workflow_dispatch run 29733741220 succeeded;
+- tag run 29734812541 for v0.1.3 failed metadata because tag target had project 0.1.2;
+- action majors checkout@v7/setup-python@v6/upload-artifact@v7/download-artifact@v8 were valid and not root cause.
+
+### Changes exactly
+- settings_dialog import lint fix;
+- release tag/project version guard restored;
+- test_build_tools expected 0.1.3;
+- Windows test aligned with conditional FreeRDP DLL inclusion;
+- SessionWizard valid custom QMessageBox helper preserving Unlock/Save Without Password/Cancel and no impossible Unlock if vault absent;
+- session wizard cancel/save-without security tests.
+
+### Verification exact
+- `poetry check --lock` exit 0;
+- `poetry run ruff check src tools tests` exit 0;
+- full `xvfb-run --auto-servernum poetry run pytest -q --tb=short` final result `648 passed, 1 xfailed`, exit 0;
+- packaging subset `28 passed, 1 xfailed`, exit 0;
+- `poetry run python tools/build.py check` output version 0.1.3 exit 0;
+- before install direct imports failed, then `poetry install --with dev --no-interaction` installed editable root and exact import check printed `Core imports OK`; file path `/ai/openadmindesk/src/openadmindesk/__init__.py`;
+- reviewer PASS for each implementation/test pass.
+
+### Risks
+- actual new GitHub runner run not yet verified because no commit/push;
+- old v0.1.3 tag must not be moved/rewritten; future release uses bumped version/new tag;
+- one existing xfail;
+- occasional segfault only for individual Qt node-id xvfb runs; `-k`, file, full suite pass;
+- actual Windows/Linux release artifact builds not rerun in this pass;
+- stale version duplicate `src/openadmindesk/__init__.py` reports 0.1.0 and needs separate pass.
 
 
+---
 
+## 2026-07-21 (Phase 11 version centralization result)
+
+### Plan
+Centralize application version and eliminate stale `__version__ = 0.1.0` duplicate.
+
+### Changes
+- `src/openadmindesk/__init__.py`: metadata-first resolver, source pyproject fallback, warnings + 0+unknown expected failure fallback, no hardcoded 0.1.0.
+- `src/openadmindesk/app.py`: centralized `__version__` wrapper.
+- `tests/test_app.py`: dynamic consistency test and wheel-only skip.
+
+### Verification
+- targeted pycompile: PASS
+- targeted Ruff: PASS
+- test_app: PASS
+- runtime version: 0.1.3
+- build.py check: 0.1.3
+- full pytest: `649 passed, 1 xfailed`
+- full Ruff: PASS
+- reviewer: PASS
+
+### Remaining risks
+- source pyproject fallback applies only checkout; installed artifact relies metadata.
+- actual GitHub CI still pending.
+- no commit/push.
+
+---
+
+## 2026-07-21 (Phase 11 CI workflow hardening result)
+
+### Plan
+Harden CI workflow and pin development dependencies for a stable, verifiable pipeline.
+
+### Changes
+- `.github/workflows/ci.yml`: added least-privilege permissions, concurrency cancellation, Poetry 2.3.2 pinning, lock validation in both jobs, and Ruff coverage for `src tools tests`.
+- `tests/test_ci_workflow.py`: added 5 parsed-YAML semantic contract tests for workflow structure, commands, action versions, and forbidden patterns.
+- `pyproject.toml`: declared PyYAML 6.0.3 explicitly for the Poetry dev group and PEP 621 dev extra.
+- `poetry.lock`: synchronized dependency metadata without package version upgrades.
+
+### Verification
+- `poetry check --lock` — PASS.
+- `poetry run pytest tests/test_ci_workflow.py -q --tb=short` — 5 passed.
+- Full headless pytest — 654 passed, 1 xfailed.
+- `poetry run ruff check src tools tests` — PASS.
+- Direct core imports — `Core imports OK`.
+
+### Reviewer
+Dependency and CI workflow passes: PASS.
+
+### Remaining risks
+- Actual GitHub Actions parser and runner have not executed these unpublished changes.
+- PyYAML semantic contracts do not completely replace GitHub runner validation or `actionlint`.
+- One existing xfail remains.
+- Actual release jobs were not run in this pass.
+
+The result used two bounded passes (dependency declaration, then workflow and tests), each within the three-file limit.
+
+No commit or push performed.
 

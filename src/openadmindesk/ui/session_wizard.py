@@ -208,16 +208,8 @@ class SessionWizard(QWizard):
 
         # If password entered but vault is absent or locked, ask user
         if password and (not self.vault or not self.vault.is_unlocked()):
-            reply = QMessageBox.question(
-                self,
-                _("Vault Locked"),
-                _("This profile has a password that needs the vault.\nThe vault is currently locked."),
-                _("Unlock Vault"),
-                _("Save Without Password"),
-                _("Cancel"),
-                0,
-            )
-            if reply == 0:  # Unlock
+            action = self._ask_vault_action()
+            if action == "unlock":
                 from PySide6.QtWidgets import QInputDialog
                 pwd, ok = QInputDialog.getText(
                     self, _("Unlock Vault"),
@@ -229,7 +221,7 @@ class SessionWizard(QWizard):
                 elif ok:
                     QMessageBox.warning(self, _("Error"), _("Wrong password."))
                 return
-            elif reply == 1:  # Save without password
+            elif action == "save_without_password":
                 profile = replace(profile, credential_id=None, password=None)
             else:  # Cancel
                 return
@@ -328,6 +320,30 @@ class SessionWizard(QWizard):
         # Success - set _saved_profile and close
         self._saved_profile = profile
         super().accept()
+
+    def _ask_vault_action(self) -> str:
+        """Ask user how to handle locked vault when password is provided."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle(_("Vault Locked"))
+        msg.setText(_("This profile has a password that needs the vault.\nThe vault is currently locked."))
+
+        unlock_btn = None
+        if self.vault is not None:
+            unlock_btn = msg.addButton(_("Unlock Vault"), QMessageBox.AcceptRole)
+
+        save_without_btn = msg.addButton(_("Save Without Password"), QMessageBox.DestructiveRole)
+        cancel_btn = msg.addButton(_("Cancel"), QMessageBox.RejectRole)
+        msg.setDefaultButton(cancel_btn)
+
+        msg.exec()
+
+        clicked = msg.clickedButton()
+        if unlock_btn and clicked == unlock_btn:
+            return "unlock"
+        if clicked == save_without_btn:
+            return "save_without_password"
+        return "cancel"
+
 
     def _compensate_vault_operation(self, account: Account, previous_account: Optional[Account]) -> bool:
         """Compensate vault operations on store failure.

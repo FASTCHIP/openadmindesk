@@ -267,6 +267,8 @@ Goal: Implement additional security measures after the initial publication.
 Verification:
 
 ```bash
+# Phase 9 verification completed in separate passes
+```
 
 ## Phase 10 - Built-in RDP Client (FreeRDP ctypes)
 
@@ -301,4 +303,33 @@ ruff check src/openadmindesk/core/rdp_client.py src/openadmindesk/ui/rdp_display
 - All builds include FreeRDP library (bundled or declared dependency)
 - All existing and new RDP tests pass
 - `ruff check` passes on all changed files
+
+## Phase 11 - CI, Version, And Release Recovery
+
+Goal: restore a verifiable CI/CD pipeline and synchronize project versioning before feature expansion.
+
+- [x] diagnose public Actions failures and validate action majors;
+- [x] restore local Ruff/full pytest baseline with references to 648 passed/1 xfailed;
+- [x] restore tag/project version fail-closed guard and packaging contract tests;
+- [x] prove direct imports after exact `poetry install --with dev`;
+- [x] centralize application version and eliminate stale `__version__ = 0.1.0` duplicate (hardcoded duplicate eliminated and metadata/pyproject resolver tested);
+- [x] add workflow validation/actionlint or equivalent and ensure CI Ruff covers `src tools tests` (evidence: explicit PyYAML + parsed YAML semantic contract tests, pinned Poetry, lock checks both jobs, Ruff src tools tests);
+- [ ] publish reviewed changes and confirm actual GitHub CI green (do not mark done);
+- [ ] bump version and create a new immutable tag; never rewrite v0.1.3;
+- [ ] verify actual release artifacts on GitHub runners.
+
+Verification:
+- `poetry run ruff check src tools tests` exit 0
+- `xvfb-run --auto-servernum poetry run pytest -q` exit 0
+- `poetry run python tools/build.py check` reports correct version
+- GitHub Actions run for `main` is green
+- Pending version centralization: compare authoritative package/project version after implementation (e.g., `grep` or Python metadata check).
+- Workflow hardening: poetry run pytest tests/test_ci_workflow.py -q required equivalent; actionlint .github/workflows/*.yml additionally when available. Neither may mask failure; unavailable optional actionlint documented, but semantic contract evidence allows current task complete.
+
+Completion Criteria:
+- All tasks marked [x]
+- CI pipeline is green on GitHub
+- Versioning is centralized and consistent across `pyproject.toml` and `src/openadmindesk/__init__.py`
+
+Phase 11 is active and must be completed before any new feature expansion.
 

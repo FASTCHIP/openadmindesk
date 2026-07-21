@@ -1,5 +1,6 @@
 """Tests for the main application entrypoint."""
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from openadmindesk.app import main
@@ -61,3 +62,21 @@ def test_main_version_prints_without_qt(capsys) -> None:
 
     assert "OpenAdminDesk 1.2.3" in capsys.readouterr().out
     mock_load_deps.assert_not_called()
+
+
+def test_version_consistency() -> None:
+    """Verify that the package version matches pyproject.toml."""
+    import tomllib
+    from pathlib import Path
+    import openadmindesk
+    from openadmindesk.app import _version
+
+    pyproject_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    if not pyproject_path.is_file():
+        pytest.skip("Source tree required for pyproject version consistency check")
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+    expected_version = data["project"]["version"]
+
+    assert openadmindesk.__version__ == expected_version
+    assert _version() == openadmindesk.__version__
