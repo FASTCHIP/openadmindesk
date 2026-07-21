@@ -463,6 +463,46 @@ def test_profile_store_nla_domain_roundtrip(tmp_path) -> None:
     assert loaded2.rdp_nla is False
     assert loaded2.rdp_domain == ""
 
+def test_profile_store_save_visibility(tmp_path) -> None:
+    """Test that saving a profile immediately makes it visible in load_all_profiles."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        # Prime cache as empty
+        assert store.load_all_profiles() == []
+
+        profile = Profile(name="Vis Test", host="host1", port=22, username="user")
+        assert store.save_profile(profile)
+
+        # Immediate load should see it without waiting for TTL
+        profiles = store.load_all_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].name == "Vis Test"
+    finally:
+        store.close()
+
+def test_profile_store_update_visibility(tmp_path) -> None:
+    """Test that updating a profile immediately reflects in load_all_profiles."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        profile = Profile(name="Upd Test", host="host1", port=22, username="user")
+        store.save_profile(profile)
+
+        # Prime cache
+        profiles = store.load_all_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].host == "host1"
+
+        # Update host
+        profile.host = "host2"
+        assert store.save_profile(profile)
+
+        # Immediate load should see updated host
+        profiles = store.load_all_profiles()
+        assert len(profiles) == 1
+        assert profiles[0].host == "host2"
+    finally:
+        store.close()
+
 
 def test_profile_store_nla_default_true(tmp_path) -> None:
     """NLA should default to True for new RDP profiles."""

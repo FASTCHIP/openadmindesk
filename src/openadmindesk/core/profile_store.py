@@ -252,6 +252,9 @@ class ProfileStore:
 
             # Update cache - evict the profile from cache so immediate load reflects DB values
             self._remove_from_cache(profile.name)
+            with self._cache_lock:
+                self._all_profiles_cache = None
+                self._all_profiles_cache_time = 0
             return True
         except Exception as e:
             self.logger.error(f"Failed to save profile: {e}")

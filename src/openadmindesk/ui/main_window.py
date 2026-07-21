@@ -738,9 +738,14 @@ class MainWindow(QMainWindow):
         wiz = SessionWizard(self.profile_store, self.vault_manager, self)
         if wiz.exec() == wiz.Accepted:
             profile = wiz.profile()
-            if profile and wiz.connect_after():
-                self._open_ssh_tab(profile)
-            self.connection_tree.refresh()
+            if profile:
+                behavior = wiz.launch_behavior()
+                if wiz.connect_after():
+                    self._open_ssh_tab(profile)
+                if behavior in ("save_only", "save_connect"):
+                    self._refresh_connection_tree_revealing(profile.name)
+            else:
+                self.connection_tree.refresh()
 
     def _new_local_terminal(self) -> None:
         """Open a local shell terminal tab."""
@@ -1136,18 +1141,42 @@ class MainWindow(QMainWindow):
             f"Connecting to {profile.username}@{profile.host}:{profile.port}...", 5000
         )
 
+    def _refresh_connection_tree_revealing(self, profile_name: str) -> None:
+        """Clear filter and refresh tree to ensure new profile is visible."""
+        if self.connection_tree.filter_input.text():
+            self.connection_tree.filter_input.clear()
+        self.connection_tree.refresh()
+        self.connection_event_area.showMessage(f"Profile '{profile_name}' saved", 3000)
+
     def _on_profile_saved(self, profile_name: str) -> None:
         """Handle profile saved event."""
-        self.connection_tree.refresh()
-        self.connection_event_area.showMessage(
-            f"Profile '{profile_name}' saved", 3000
-        )
+        self._refresh_connection_tree_revealing(profile_name)
+
+    def _prepare_profile_for_connection(self, profile: Profile) -> Profile:
+        """Ensure vault is unlocked if profile requires credentials."""
+        if (profile.credential_id or profile.rdp_gateway_credential_id) and not self.vault_manager.is_unlocked():
+            reply = QMessageBox.question(
+                self, _("Vault Locked"),
+                _("Saved credentials are locked. Unlock now to use them?"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                self._unlock_vault()
+
+            if not self.vault_manager.is_unlocked():
+                self.connection_event_area.showMessage(
+                    _("Saved credentials are unavailable while the vault is locked. Enter a one-time password in the session tab or unlock the vault."),
+                    8000
+                )
+
+        return self._profile_with_vault_credentials(profile)
 
     def _profile_with_vault_credentials(self, profile: Profile) -> Profile:
-        if not self.vault_manager.is_unlocked():
-            return profile
-
         runtime_profile = copy.deepcopy(profile)
+        if not self.vault_manager.is_unlocked():
+            return runtime_profile
+
         if profile.credential_id:
             account = self.vault_manager.get_account(profile.credential_id)
             if account:
@@ -1169,7 +1198,7 @@ class MainWindow(QMainWindow):
 
     def _open_ssh_tab(self, profile: Profile) -> None:
         """Open a session tab for the given profile and auto-connect."""
-        profile = self._profile_with_vault_credentials(profile)
+        profile = self._prepare_profile_for_connection(profile)
         tab_name = f"{profile.icon} {profile.name}"
 
         # Check if session already exists in any workspace
@@ -1186,6 +1215,9 @@ class MainWindow(QMainWindow):
         if profile.session_type == SessionType.RDP:
             from openadmindesk.ui.rdp_session_tab import RdpSessionTab
             tab = RdpSessionTab(profile)
+            tab.status_message.connect(
+                lambda msg: self.connection_event_area.showMessage(msg, 8000)
+            )
             active_workspace.addTab(tab, tab_name)
         elif profile.session_type == SessionType.TELNET:
             from openadmindesk.ui.telnet_session_tab import TelnetSessionTab

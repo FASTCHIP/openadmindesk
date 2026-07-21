@@ -315,15 +315,15 @@ Goal: restore a verifiable CI/CD pipeline and synchronize project versioning bef
 - [x] centralize application version and eliminate stale `__version__ = 0.1.0` duplicate (hardcoded duplicate eliminated and metadata/pyproject resolver tested);
 - [x] add workflow validation/actionlint or equivalent and ensure CI Ruff covers `src tools tests` (evidence: explicit PyYAML + parsed YAML semantic contract tests, pinned Poetry, lock checks both jobs, Ruff src tools tests);
 - [x] publish reviewed changes and confirm actual GitHub CI green (Commit: dd5d828, Run: 29855190951);
-- [ ] bump version and create a new immutable tag; never rewrite v0.1.3;
-- [ ] verify actual release artifacts on GitHub runners.
+- [x] bump version and create annotated tag v0.1.4 under the no-rewrite policy; v0.1.3 untouched (commit 827197d);
+- [x] verify actual release artifacts on GitHub runners.
 
 Verification:
 - `poetry run ruff check src tools tests` exit 0
 - `xvfb-run --auto-servernum poetry run pytest -q` exit 0
 - `poetry run python tools/build.py check` reports correct version
 - GitHub Actions run for `main` is green
-- Pending version centralization: compare authoritative package/project version after implementation (e.g., `grep` or Python metadata check).
+- Version centralization verified: runtime/package metadata and build artifacts report 0.1.4.
 - Workflow hardening: poetry run pytest tests/test_ci_workflow.py -q required equivalent; actionlint .github/workflows/*.yml additionally when available. Neither may mask failure; unavailable optional actionlint documented, but semantic contract evidence allows current task complete.
 
 Completion Criteria:
@@ -331,5 +331,30 @@ Completion Criteria:
 - CI pipeline is green on GitHub
 - Versioning is centralized and consistent across `pyproject.toml` and `src/openadmindesk/__init__.py`
 
-Phase 11 is active and must be completed before any new feature expansion.
+Phase 11 is complete based on GitHub CI run 29858080376 and release run 29858758461.
+
+## Phase 12 - Windows EXE Connection UX Stabilization
+
+Goal: Resolve critical UX defects reported in Windows EXE distribution regarding credential persistence and RDP diagnostics.
+
+- [x] diagnose three user reports and root causes;
+- [x] runtime credential deep copy/unlock/one-time RDP;
+- [x] visible RDP diagnostics/reconnect state;
+- [x] invalidate ProfileStore all-list cache and clear stale filter;
+- [x] regression tests/local 662 passed 1 xfailed/Ruff;
+- [ ] publish reviewed five-file fix and confirm GitHub CI green;
+- [ ] produce next Windows artifact/build from fixed commit;
+- [ ] manually verify saved RDP unlock, one-time cancel/error, SSH immediate visibility and restart persistence on Windows EXE.
+
+Verification:
+- `poetry run ruff check src tools tests`
+- `QT_QPA_PLATFORM=offscreen poetry run pytest -q`
+- Manual verification on Windows EXE build.
+
+Completion Criteria:
+- All checklist items marked [x].
+- Manual verification on Windows EXE confirms fixes.
+- GitHub CI is green for the fix commit.
+
+Phase 12 is currently active; terminal feature expansion deferred.
 

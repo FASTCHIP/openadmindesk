@@ -3678,3 +3678,67 @@ No commit or push performed.
 
 *Note: Existing `v0.1.3` was not moved or rewritten; no new release or tag was created in this pass.*
 
+---
+## 2026-07-21 (Phase 11 v0.1.4 release result)
+
+### Version/Tag
+- Version: v0.1.4
+- Commit: 827197d9b2aa3e395847377e37e1dc8d456fa41c
+- Tag: v0.1.4 (annotated, unsigned)
+
+### CI/Release run
+- CI run: 29858080376 (success)
+- Release run: 29858758461 #12 (success)
+- URL: https://github.com/FASTCHIP/openadmindesk/actions/runs/29858758461
+- Jobs: 88729725196, linux 88729780677, windows 88729780728, release 88730466557 (all success)
+
+### Assets/checksums
+- GitHub Release: https://github.com/FASTCHIP/openadmindesk/releases/tag/v0.1.4
+- Assets (7):
+  - OpenAdminDesk-0.1.4-linux-x86_64.AppImage (sha 961407...)
+  - OpenAdminDesk-0.1.4-windows-x86_64.exe (sha 65f86c...)
+  - openadmindesk-0.1.4-py3-none-any.whl (sha 1e6458...)
+  - openadmindesk-0.1.4.tar.gz (sha 75c56a...)
+  - openadmindesk_0.1.4_all.deb (sha e8d3b2...)
+  - openadmindesk-0.1.4-1.noarch.rpm (sha 48a4c6...)
+  - SHA256SUMS (602 bytes)
+- Checksum verification: All 6 assets match API digests.
+
+### Phase result
+- Phase 11 is complete.
+- Evidence: Successful CI/Release runs and published artifacts on GitHub.
+- Windows EXE is an unsigned preview.
+- Tag v0.1.4 is annotated but unsigned; project policy forbids rewriting it.
+
+### Remaining risks
+- No manual installation testing performed beyond workflow smoke tests.
+- GitHub Release API reports immutable=false; release mutability is distinct from the project's no-rewrite tag policy.
+
+---
+
+## 2026-07-21 (Windows EXE connection UX defects and fixes)
+
+### User evidence
+RDP password appeared unsaved; SSH profile disappeared; RDP reason invisible.
+
+### Root causes
+1. saved secrets are vault refs; locked vault silently supplied secret-free profile;
+2. RDP had no one-time prompt and error detail only tooltip/generic label;
+3. ProfileStore save did not invalidate `_all_profiles_cache` TTL300, plus stale tree filter hid saves.
+
+### Changes exact five files
+- src/openadmindesk/core/profile_store.py
+- src/openadmindesk/ui/main_window.py
+- src/openadmindesk/ui/rdp_session_tab.py
+- tests/test_profile_store.py
+- tests/test_connection_runtime_ux.py
+
+### Security behavior
+runtime deep copy, no plaintext persistence, unlock or one-time password.
+
+### Verification exact
+UX6, ProfileStore17, full662 passed/1 xfailed, Ruff/pycompile/lock/diff-check PASS; source/cache/aggregate reviewer PASS.
+
+### Remaining
+Windows EXE manual retest, publish/CI/new Windows artifact pending; no commit/push for current fixes.
+

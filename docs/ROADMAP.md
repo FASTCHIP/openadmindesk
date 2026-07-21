@@ -5,8 +5,7 @@ priority.
 
 ## Current Development Mode
 
-Stabilization is reopened for Phase 11 until real GitHub CI is green. `docs/AUDIT_REMEDIATION_PLAN.md`
-remains authoritative for stabilization; this roadmap is for product work afterward.
+Phase 11 completed but Phase12 Windows EXE connection UX stabilization active due user evidence; AUDIT authoritative; product expansion paused until publish/manual evidence.
 
 ## Phase 0 - Project Groundwork
 
@@ -182,7 +181,4 @@ Use `docs/MOBAXTERM_GAP_PLAN.md` as the next product-quality roadmap after stabi
 - **Verification**: `tools/build.py`, `docs/GUI_SMOKE_EVIDENCE.md`.
 
 ### Immediate Next Implementation Order
-1. Phase 11: Version centralization.
-2. Phase 11: CI workflow hardening.
-3. Phase 11: Actual GitHub green run.
-4. Direction 2: Terminal fidelity.
+1. Phase12 publish/CI; Windows build/manual RDP+SSH retest; then Direction2 terminal fidelity. Keep guardrails/plans.

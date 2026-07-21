@@ -25,6 +25,7 @@ class RdpSessionTab(QWidget):
     """
 
     tab_closed = Signal()
+    status_message = Signal(str)
 
     def __init__(self, profile: Profile) -> None:
         super().__init__()
@@ -106,6 +107,23 @@ class RdpSessionTab(QWidget):
 
     def _connect(self) -> None:
         """Start RDP session."""
+        if self.profile.username and not self.profile.password:
+            from PySide6.QtWidgets import QInputDialog, QLineEdit
+            pwd, ok = QInputDialog.getText(
+                self, _("RDP Password"),
+                _("Enter password for {}:").format(f"{self.profile.username}@{self.profile.host}"),
+                QLineEdit.Password
+            )
+            if ok and pwd:
+                self.profile.password = pwd
+            else:
+                self._connected = False
+                self._connect_button.setText(_("Connect"))
+                self._connect_button.setEnabled(True)
+                self._status_label.setText(_("● Password required"))
+                self.status_message.emit(_("RDP connection failed: Password required"))
+                return
+
         self._connect_button.setEnabled(False)
         self._status_label.setText(_("● Connecting..."))
         self._status_label.setStyleSheet(
@@ -145,13 +163,20 @@ class RdpSessionTab(QWidget):
         self._cad_button.setEnabled(False)
 
     def _on_error(self, message: str) -> None:
-        self._status_label.setText(_("● Error"))
+        detail = (message or '').strip() or _("Unknown RDP error")
+        label_text = (detail[:90] + '...') if len(detail) > 93 else detail
+
+        self._connected = False
+        self._connect_button.setText(_("Connect"))
+        self._connect_button.setEnabled(True)
+        self._cad_button.setEnabled(False)
+
+        self._status_label.setText(f"● Error: {label_text}")
         self._status_label.setStyleSheet(
             "font-size: 13px; color: #e05555; font-weight: bold;"
         )
-        self._status_label.setToolTip(message)
-        self._connect_button.setEnabled(True)
-        self._cad_button.setEnabled(False)
+        self._status_label.setToolTip(detail)
+        self.status_message.emit(f"RDP connection failed: {detail}")
  
     def _on_certificate_prompt(self, host, fingerprint, subject, issuer):
         from PySide6.QtWidgets import QMessageBox
