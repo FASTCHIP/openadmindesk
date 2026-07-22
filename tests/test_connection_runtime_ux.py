@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import Qt
 from unittest.mock import patch
 
@@ -229,5 +229,106 @@ def test_rdp_error(monkeypatch):
     assert tab._connect_button.text() == "Connect"
     assert tab._connect_button.isEnabled()
     assert not tab._cad_button.isEnabled()
+
+    tab.deleteLater()
+
+
+def test_rdp_error_long_detail(monkeypatch):
+    """Test 7: Long error detail >93 chars: label truncated, tooltip full,
+    signal full, copy-error button visible/enabled, click copies exact full detail."""
+    profile = Profile(name="RDP_Long", host="1.2.3.4", session_type=SessionType.RDP)
+    tab = RdpSessionTab(profile)
+
+    long_msg = "NLA authentication failed: " + "x" * 100
+    # ensure > 93 chars after strip
+    assert len(long_msg.strip()) > 93
+
+    tab._on_error(long_msg)
+    tab.show()
+
+    # label truncated
+    assert tab._status_label.text() == "● Error: " + long_msg[:90] + "..."
+    # tooltip full
+    assert tab._status_label.toolTip() == long_msg.strip()
+    # signal full
+    emitted = []
+    tab.status_message.connect(lambda msg: emitted.append(msg))
+    tab._on_error(long_msg)
+    assert "RDP connection failed: " + long_msg.strip() in emitted
+    # button visible and enabled
+    assert tab._copy_error_button.isVisible()
+    assert tab._copy_error_button.isEnabled()
+    # click copies exact full detail to clipboard via real button signal
+    QApplication.clipboard().clear()
+    tab._copy_error_button.click()
+    assert QApplication.clipboard().text() == long_msg.strip()
+
+    tab.deleteLater()
+
+
+def test_rdp_error_blank(monkeypatch):
+    """Test 8: Blank/empty message falls back to 'Unknown RDP error'."""
+    profile = Profile(name="RDP_Blank", host="1.2.3.4", session_type=SessionType.RDP)
+    tab = RdpSessionTab(profile)
+    tab.show()
+
+    tab._on_error("")
+    assert tab._status_label.text() == "● Error: Unknown RDP error"
+    assert tab._status_label.toolTip() == "Unknown RDP error"
+    assert tab._error_detail == "Unknown RDP error"
+    assert tab._copy_error_button.isVisible()
+    assert tab._copy_error_button.isEnabled()
+
+    # whitespace-only also falls back
+    tab._on_error("   ")
+    assert tab._error_detail == "Unknown RDP error"
+
+    tab.deleteLater()
+
+
+def test_rdp_error_clear_on_reconnect(monkeypatch):
+    """Test 9: Stale error detail and copy button cleared on new connect attempt."""
+    profile = Profile(name="RDP_ClearReconnect", host="1.2.3.4",
+                       session_type=SessionType.RDP)
+    tab = RdpSessionTab(profile)
+    tab.show()
+
+    # induce error state
+    tab._on_error("Something went wrong")
+    assert tab._error_detail is not None
+    assert tab._copy_error_button.isVisible()
+
+    # stub connect_to_host to prevent real connection
+    monkeypatch.setattr(tab._client, "connect_to_host", lambda: None)
+    # stub password dialog so it doesn't block (profile has no password)
+    monkeypatch.setattr(
+        "PySide6.QtWidgets.QInputDialog.getText",
+        lambda *args, **kwargs: ("dummy", True),
+    )
+    tab._connect()
+    assert tab._error_detail is None
+    assert not tab._copy_error_button.isVisible()
+    assert not tab._copy_error_button.isEnabled()
+    assert tab._status_label.toolTip() == ""
+
+    tab.deleteLater()
+
+
+def test_rdp_error_clear_on_disconnect(monkeypatch):
+    """Test 10: Stale error detail and copy button cleared on disconnect."""
+    profile = Profile(name="RDP_ClearDisconnect", host="1.2.3.4",
+                       session_type=SessionType.RDP)
+    tab = RdpSessionTab(profile)
+    tab.show()
+
+    tab._on_error("Something went wrong")
+    assert tab._error_detail is not None
+    assert tab._copy_error_button.isVisible()
+
+    tab._on_disconnected()
+    assert tab._error_detail is None
+    assert not tab._copy_error_button.isVisible()
+    assert not tab._copy_error_button.isEnabled()
+    assert tab._status_label.toolTip() == ""
 
     tab.deleteLater()

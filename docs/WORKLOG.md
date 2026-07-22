@@ -2273,23 +2273,23 @@ Reviewer PASS — all changes accepted. No further changes requested.
 ### Implementation
 
 1. **VNC backend** (`vnc_backend.py`):
-   - `connect()` now passes profile options to viewer: scaling (-scale), view-only (-ViewOnly), color depth (-depth), encoding (-encodings)
-   - Added `get_command_line()` for diagnostics
-   - Viewer-specific flags (vncviewer/vinagre/remmina)
+    - `connect()` now passes profile options to viewer: scaling (-scale), view-only (-ViewOnly), color depth (-depth), encoding (-encodings)
+    - Added `get_command_line()` for diagnostics
+    - Viewer-specific flags (vncviewer/vinagre/remmina)
 
 2. **VNC session tab** (`vnc_session_tab.py`):
-   - Shows active VNC options in info panel before connecting
-   - Displays viewer name and parsed options (scaling, view-only, depth)
-   - Error diagnostics from stderr capture
+    - Shows active VNC options in info panel before connecting
+    - Displays viewer name and parsed options (scaling, view-only, depth)
+    - Error diagnostics from stderr capture
 
 3. **Session wizard** (`session_wizard.py`):
-   - Added encoding combo (Tight, ZRLE, Hextile, Raw) to VNC advanced page
-   - vnc_encoding wired through collectProfileData into profile/backend
+    - Added encoding combo (Tight, ZRLE, Hextile, Raw) to VNC advanced page
+    - vnc_encoding wired through collectProfileData into profile/backend
 
 4. **X11 forwarding** (`tunnel_manager.py`):
-   - X11 forwarding guidance shown when X11 available (trusted -Y vs untrusted -X)
-   - Remote GUI app presets: xterm, firefox, gedit, nautilus, gnome-system-monitor
-   - Simplified launch flow with presets + custom command input
+    - X11 forwarding guidance shown when X11 available (trusted -Y vs untrusted -X)
+    - Remote GUI app presets: xterm, firefox, gedit, nautilus, gnome-system-monitor
+    - Simplified launch flow with presets + custom command input
 
 ### Files Changed
 
@@ -3796,4 +3796,177 @@ This entry is a documentation-only pass recording two already completed bounded 
 ### Changed files (this entry only)
 
 - `docs/WORKLOG.md` — appended this entry
+
+---
+
+## 2026-07-22 (Copyable RDP error diagnostic)
+
+### Plan/Scope
+
+Make current RDP diagnostic explicitly copyable without changing other RDP actions (Connect, Ctrl+Alt+Del, Fullscreen, certificate prompt, password/reconnect, close lifecycle).
+
+### Exact files changed
+
+- `src/openadmindesk/ui/rdp_session_tab.py` (+29)
+- `tests/test_connection_runtime_ux.py` (+102/-1)
+
+### Behavior
+
+- Hidden+disabled **Copy error** button in toolbar, initially invisible.
+- `_on_error` stores normalized detail: `(message or '').strip()` or localized `'Unknown RDP error'`; retains truncated status label text, full tooltip on the status label, and emits full detail via `status_message` signal with `"RDP connection failed: "` prefix.
+- Explicit **Copy error** button click copies exact stored detail to clipboard via `QApplication.clipboard().setText()`.
+- **Connect**, **reconnect**, **password cancel**, **connected**, **disconnected** all clear the stored detail, disable/hide the copy button, and clear the stale tooltip.
+
+### Preservation
+
+- Connect, Ctrl+Alt+Del, Fullscreen order and semantics unchanged.
+- Certificate prompt flow, `RdpDisplay` widget, remote clipboard, password/reconnect dialog, close lifecycle all unchanged.
+- No other RDP actions or signals modified.
+
+### Exact evidence
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `QT_QPA_PLATFORM=offscreen poetry run pytest tests/test_connection_runtime_ux.py -q` | 0 | 10 passed |
+| `poetry run ruff check src/openadmindesk/ui/rdp_session_tab.py tests/test_connection_runtime_ux.py` | 0 | All checks passed |
+| `python3 -m py_compile src/openadmindesk/ui/rdp_session_tab.py tests/test_connection_runtime_ux.py` | 0 | PASS |
+| `git diff --check -- src/openadmindesk/ui/rdp_session_tab.py tests/test_connection_runtime_ux.py` | 0 | Clean |
+
+### Reviewer
+
+Independent reviewer verdict: **PASS**. No confirmed CRITICAL/HIGH/MEDIUM findings.
+
+### Remaining risks
+
+- No full test suite was run in this bounded pass.
+- No real Windows EXE or manual clipboard smoke test performed.
+- No commit or push was performed; changes remain unstaged.
+- No locale JSON updates, real packaging, or CI verification claimed.
+
+---
+
+## 2026-07-22 (Restart checkpoint — Profile rename UI NOT_VERIFIED)
+
+### Baseline / HEAD
+
+- **HEAD**: `0cc23c3` (`fix: add profile rename and packaged FreeRDP loading`), branch `main...origin/main`.
+- **Pre-checkpoint tracked diff**: 456 insertions, 1 deletion across 6 tracked files.
+- **Current tracked diff including this checkpoint**: 534 insertions, 1 deletion across the same 6 tracked files, plus 1 untracked file.
+
+### File status separation
+
+**Reviewed copyable RDP pass (PASS — 3 paths):**
+1. `src/openadmindesk/ui/rdp_session_tab.py` — 29/0 (Copy error button, detail storage)
+2. `tests/test_connection_runtime_ux.py` — 102/1 (10 focused tests)
+3. `docs/WORKLOG.md` — existing entry `2026-07-22 (Copyable RDP error diagnostic)`
+
+Focused evidence: `QT_QPA_PLATFORM=offscreen poetry run pytest tests/test_connection_runtime_ux.py -q` → exit 0, `10 passed`; Ruff/py_compile/diff-check all PASS; independent reviewer PASS.
+
+**NOT_VERIFIED Profile rename UI pass (3 implementation/test paths):**
+1. `src/openadmindesk/ui/connection_tree.py` — 14/0
+2. `src/openadmindesk/ui/main_window.py` — 19/0
+3. `tests/test_connection_tree.py` — 246/0
+
+**Untracked scope-violation file (untouched, unresolved):**
+- `docs/STACK_IMPROVEMENTS.md` — 179 lines, ownership/disposition unresolved. Not edited, deleted, or renamed by this pass.
+
+### Profile rename intended / implemented behavior
+
+**`ConnectionTree`** (`connection_tree.py` +14):
+- New signal `profile_rename_requested = Signal(str, str)` — emitted with `(old_name, normalized_new_name)`.
+- **Rename...** action added to profile context menu (after Duplicate, before SSH-specific actions).
+- `_on_rename_profile(old_name)` helper: shows `QInputDialog.getText` pre-filled with current name; no-op on cancel, blank, or same-after-strip; emits signal only on valid change.
+
+**`MainWindow`** (`main_window.py` +19):
+- Wired `profile_rename_requested` → `_on_profile_rename_requested`.
+- On `ProfileStore.rename_profile` success: clears filter, refreshes tree, shows 3s event-area message.
+- On failure: shows `QMessageBox.warning` with both names; tree/filter not mutated.
+
+**Tests** (`test_connection_tree.py` +246):
+- `test_rename_signal_exists` — signal attribute on tree.
+- `test_rename_prompt_normalization` — cancel/blank/same/valid via QInputDialog monkeypatch.
+- `test_profile_context_menu_contains_rename` — menu has Rename action (uses monkeypatched `QMenu.exec` that QTimer-closes to avoid blocking).
+- `test_mainwindow_rename_success` — end-to-end: DB rename, old name absent / new name present, host/username preserved, filter cleared, new name visible in tree.
+- `test_mainwindow_rename_conflict` — end-to-end: both DB records remain unchanged, filter not cleared, warning contains both names.
+- Cleanup in both MainWindow tests manually calls `profile_store.close()`, `vault_manager.close()`, and `win.deleteLater()` to avoid triggering broken `SyncManager.close()` in `closeEvent`.
+
+### Verification truth
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `python3 -m py_compile src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py` | 0 | PASS |
+| `git diff --check -- src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py` | 0 | Clean |
+| Initial `poetry run ruff check src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py` | — | Initial run found unused `original_warning` in test file; worker reports it edited the test to remove it afterward but did not provide a complete final rerun evidence. **Final Ruff NOT_VERIFIED.** |
+| `QT_QPA_PLATFORM=offscreen poetry run pytest tests/test_connection_tree.py -q` | — | Timed out / hung. Root causes: (1) context menu test blocks at `QMenu.exec()` despite monkeypatch attempt; (2) MainWindow cleanup encounters pre-existing missing `SyncManager.close()` during `closeEvent` if `win.close()` is called. **Overall pytest NOT_VERIFIED.** |
+
+**Profile rename pass overall verdict: NOT_VERIFIED**. No reviewer was invoked because verification evidence is incomplete.
+
+### Restart next steps
+
+1. **Determine ownership/disposition of `docs/STACK_IMPROVEMENTS.md`** — do not remove automatically; resolve with human before proceeding.
+2. **Inspect current three-file Profile rename diff** — `connection_tree.py` (+14), `main_window.py` (+19), `test_connection_tree.py` (+246).
+3. **Reduce test fix scope**:
+   - Make profile context menu construction testable without executing modal `QMenu.exec()` — small helper or refactor in the three currently allowed files.
+   - Avoid triggering unrelated `MainWindow.closeEvent`/`SyncManager.close()` in rename tests — use bounded harness/cleanup instead; do not fix `SyncManager` in the same pass.
+4. **Rerun exact commands**:
+   - `QT_QPA_PLATFORM=offscreen poetry run pytest tests/test_connection_tree.py -q`
+   - `poetry run ruff check src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py`
+   - `python3 -m py_compile src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py`
+   - `git diff --check -- src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py`
+   - `git status --short`
+5. **Only after complete evidence and exact scope inspection** invoke reviewer.
+6. **Commit/push not performed and must not occur from this checkpoint.**
+
+### Copyable RDP pass status
+
+The existing copyable RDP pass (3 files: `rdp_session_tab.py`, `test_connection_runtime_ux.py`, WORKLOG entry) remains **reviewed PASS** with `10 passed` focused evidence and is **not** the blocker.
+
+
+## 2026-07-22 (Profile rename UI verification)
+
+### Plan
+
+1. Refactor context-menu testability pass via helper; test does not call modal `QMenu.exec()`
+2. Cleanup rename tests without changing `SyncManager.close()`
+3. Run focused checkpoint tests:
+   - `QT_QPA_PLATFORM=offscreen poetry run pytest tests/test_connection_tree.py -q`
+   - `poetry run ruff check src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py`
+   - `python3 -m py_compile src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py`
+   - `git diff --check -- src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py`
+   - `git status --short`
+4. Reviewer only after full PASS
+5. `docs/STACK_IMPROVEMENTS.md` remains untracked, untouched, out of scope/review/commit: ownership not confirmed, not source of truth; do not delete/edit
+
+## 2026-07-22 (Profile rename UI verification completed)
+
+### Scope and behavior
+
+- Files: `src/openadmindesk/ui/connection_tree.py`, `src/openadmindesk/ui/main_window.py`, `tests/test_connection_tree.py`.
+- `_build_context_menu(item)` builds the menu without displaying it; production `_show_context_menu` still calls `QMenu.exec()`.
+- The context-menu test inspects actions/order directly without modal API, event loop, or timer execution.
+- Unrelated profile, folder, and blank-area actions, labels, icons, callbacks, separators, and order remain unchanged.
+- Rename prompt normalization, successful refresh/filter/message behavior, and conflict warning/no-mutation behavior are covered.
+
+### Test isolation
+
+- Rename tests monkeypatch only the test instance `win.sync_manager.close`, then use `win.close()` and `deleteLater()`.
+- Production `SyncManager.close()` was not changed.
+- Tests patch `openadmindesk.ui.main_window.default_db_path` and `default_vault_path`, ensuring `tmp_path` storage despite direct imports in `main_window.py`.
+
+### Verification
+
+| Command | Exit | Result |
+|---------|------|--------|
+| `QT_QPA_PLATFORM=offscreen poetry run pytest tests/test_connection_tree.py -q` | 0 | `11 passed in 0.89s` |
+| `poetry run ruff check src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py` | 0 | `All checks passed!` |
+| `python3 -m py_compile src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py` | 0 | PASS |
+| `git diff --check -- src/openadmindesk/ui/connection_tree.py src/openadmindesk/ui/main_window.py tests/test_connection_tree.py` | 0 | Clean |
+| `git status --short` | 0 | Baseline six modified tracked files plus untracked `docs/STACK_IMPROVEMENTS.md` unchanged |
+| `QT_QPA_PLATFORM=offscreen poetry run pytest tests/test_connection_tree.py -q -k "mainwindow_rename"` | 0 | `2 passed` |
+
+### Disposition and status
+
+- `docs/STACK_IMPROVEMENTS.md` remains untracked, untouched, outside scope/review/commit; ownership is unconfirmed and it is not a source of truth.
+- Independent reviewer verdict: **PASS**; no confirmed CRITICAL, HIGH, or MEDIUM findings.
+- No commit or push was performed.
 

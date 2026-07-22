@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QApplication,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -32,6 +33,7 @@ class RdpSessionTab(QWidget):
         self.profile = profile
         self._client = RdpClient(profile)
         self._connected = False
+        self._error_detail: str | None = None
         self._setup_ui()
         self._wire_client()
 
@@ -63,6 +65,12 @@ class RdpSessionTab(QWidget):
             "font-size: 13px; color: #e05555; font-weight: bold;"
         )
         toolbar.addWidget(self._status_label)
+
+        self._copy_error_button = QPushButton(_("Copy error"))
+        self._copy_error_button.clicked.connect(self._copy_error_to_clipboard)
+        self._copy_error_button.setVisible(False)
+        self._copy_error_button.setEnabled(False)
+        toolbar.addWidget(self._copy_error_button)
 
         toolbar.addStretch()
 
@@ -96,6 +104,20 @@ class RdpSessionTab(QWidget):
         self._client.certificate_prompt.connect(self._on_certificate_prompt)
         self._client.clipboard_text_received.connect(self._on_clipboard_received)
 
+    # ── error state helpers ───────────────────────────────────────────
+
+    def _clear_error_state(self) -> None:
+        """Hide/disable the copy-error button and discard stored detail and tooltip."""
+        self._error_detail = None
+        self._copy_error_button.setVisible(False)
+        self._copy_error_button.setEnabled(False)
+        self._status_label.setToolTip("")
+
+    def _copy_error_to_clipboard(self) -> None:
+        """Copy the full normalized error detail to the clipboard."""
+        if self._error_detail:
+            QApplication.clipboard().setText(self._error_detail)
+
     # ── connection control ────────────────────────────────────────────
 
     def _toggle_connection(self) -> None:
@@ -107,6 +129,7 @@ class RdpSessionTab(QWidget):
 
     def _connect(self) -> None:
         """Start RDP session."""
+        self._clear_error_state()
         if self.profile.username and not self.profile.password:
             from PySide6.QtWidgets import QInputDialog, QLineEdit
             pwd, ok = QInputDialog.getText(
@@ -143,6 +166,7 @@ class RdpSessionTab(QWidget):
     # ── RdpClient signal handlers ─────────────────────────────────────
 
     def _on_connected(self) -> None:
+        self._clear_error_state()
         self._connected = True
         self._status_label.setText(_("● Connected"))
         self._status_label.setStyleSheet(
@@ -153,6 +177,7 @@ class RdpSessionTab(QWidget):
         self._cad_button.setEnabled(True)
 
     def _on_disconnected(self) -> None:
+        self._clear_error_state()
         self._connected = False
         self._status_label.setText(_("● Disconnected"))
         self._status_label.setStyleSheet(
@@ -165,6 +190,10 @@ class RdpSessionTab(QWidget):
     def _on_error(self, message: str) -> None:
         detail = (message or '').strip() or _("Unknown RDP error")
         label_text = (detail[:90] + '...') if len(detail) > 93 else detail
+
+        self._error_detail = detail
+        self._copy_error_button.setVisible(True)
+        self._copy_error_button.setEnabled(True)
 
         self._connected = False
         self._connect_button.setText(_("Connect"))

@@ -42,6 +42,7 @@ class ConnectionTree(QWidget):
     profile_export_requested = Signal(str)
     profile_sftp_requested = Signal(str)
     folder_launch_requested = Signal(str)  # folder name
+    profile_rename_requested = Signal(str, str)
     tree_changed = Signal()
     new_profile_requested: Optional[Callable] = None
 
@@ -284,8 +285,7 @@ class ConnectionTree(QWidget):
         if profile and isinstance(profile, Profile):
             self.connection_requested.emit(profile)
 
-    def _show_context_menu(self, position) -> None:
-        item = self._tree.itemAt(position)
+    def _build_context_menu(self, item: Optional[QTreeWidgetItem]) -> QMenu:
         menu = QMenu()
         profile = item.data(0, ROLE_PROFILE) if item else None
         is_folder = item.data(0, ROLE_IS_FOLDER) if item else False
@@ -314,6 +314,7 @@ class ConnectionTree(QWidget):
             )
             menu.addAction(_("Edit..."), lambda: self.profile_edit_requested.emit(profile.name))
             menu.addAction(_("Duplicate"), lambda: self.profile_duplicate_requested.emit(profile.name))
+            menu.addAction(_("Rename..."), lambda: self._on_rename_profile(profile.name))
 
             # SSH-specific actions
             if profile.session_type == SessionType.SSH:
@@ -369,6 +370,11 @@ class ConnectionTree(QWidget):
             menu.addSeparator()
             menu.addAction(_("New Folder..."), lambda: self._create_folder(parent=None))
 
+        return menu
+
+    def _show_context_menu(self, position) -> None:
+        item = self._tree.itemAt(position)
+        menu = self._build_context_menu(item)
         menu.exec(self._tree.mapToGlobal(position))
 
     def _copy_to_clipboard(self, text: str) -> None:
@@ -409,3 +415,15 @@ class ConnectionTree(QWidget):
             self.store.delete_folder(folder_name)
             self.refresh()
             self.tree_changed.emit()
+
+    def _on_rename_profile(self, old_name: str) -> None:
+        """Prompt for a new name and emit profile_rename_requested if valid."""
+        new_name, ok = QInputDialog.getText(
+            self, _("Rename Profile"), _("New name:"), text=old_name,
+        )
+        if not ok:
+            return
+        normalized = new_name.strip()
+        if not normalized or normalized == old_name:
+            return
+        self.profile_rename_requested.emit(old_name, normalized)

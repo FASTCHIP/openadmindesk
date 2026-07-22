@@ -155,6 +155,9 @@ class MainWindow(QMainWindow):
         self.connection_tree.profile_sftp_requested.connect(
             self._on_profile_sftp_requested
         )
+        self.connection_tree.profile_rename_requested.connect(
+            self._on_profile_rename_requested
+        )
         self.connection_tree.folder_launch_requested.connect(
             self._on_folder_launch_requested
         )
@@ -1030,6 +1033,22 @@ class MainWindow(QMainWindow):
         self.profile_store.save_profile(new_profile)
         self.connection_tree.refresh()
         self.connection_event_area.showMessage(f"Duplicated to '{new_name}'", 3000)
+
+    def _on_profile_rename_requested(self, old_name: str, new_name: str) -> None:
+        """Handle profile rename request from connection tree."""
+        if self.profile_store.rename_profile(old_name, new_name):
+            if self.connection_tree.filter_input.text():
+                self.connection_tree.filter_input.clear()
+            self.connection_tree.refresh()
+            self.connection_event_area.showMessage(
+                f"Profile renamed from '{old_name}' to '{new_name}'", 3000
+            )
+        else:
+            QMessageBox.warning(
+                self, _("Rename Failed"),
+                f"Could not rename profile '{old_name}' to '{new_name}'. "
+                "The name may already be taken or the profile does not exist.",
+            )
 
     def _on_profile_export_requested(self, profile_name: str) -> None:
         """Export a single profile to a JSON file."""
