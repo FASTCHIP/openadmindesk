@@ -278,7 +278,7 @@ across all build variants (AppImage, deb, rpm, exe).
 
 - [x] 10.1 Platform detection: add `find_freerdp_library()` to `platform_utils.py`; define FreeRDP ctypes structs and constants (`rdp_client.py`).
 - [x] 10.2 Core wrapper: implement `RdpClient(QObject)` with connect/disconnect/event loop lifecycle, frame callback, Qt signals (`connected`, `disconnected`, `frame_ready`, `error_occurred`).
-- [x] 10.3 Display widget: implement `RdpDisplay(QWidget)` — QPainter frame rendering, keyboard scancode translation, mouse event forwarding, resize notification.
+- [ ] 10.3 Display/frame pipeline: `RdpDisplay(QWidget)` exists, but `rdp_client.py::_on_frame_update()` remains a stub; real frame delivery/rendering is not implemented or proven. Completion is tracked by Phase 13.2-13.3.
 - [x] 10.4 Session tab: rewrite `RdpSessionTab` to embed `RdpDisplay` instead of external-process control panel.
 - [x] 10.5 Certificate TOFU: FreeRDP certificate verify callback → Qt dialog → store thumbprint; match existing SSH host-key TOFU pattern.
 - [x] 10.6 NLA authentication: pass credentials from Profile/Vault to FreeRDP settings struct; never on command line.
@@ -303,6 +303,9 @@ ruff check src/openadmindesk/core/rdp_client.py src/openadmindesk/ui/rdp_display
 - All builds include FreeRDP library (bundled or declared dependency)
 - All existing and new RDP tests pass
 - `ruff check` passes on all changed files
+
+### Phase 10 status correction (2026-07-22)
+Phase 10 is NOT complete until 10.3, 10.10 and corresponding Phase 13 ABI/frame/manual gates are closed; mock tests do not replace real FreeRDP smoke.
 
 ## Phase 11 - CI, Version, And Release Recovery
 
@@ -342,7 +345,7 @@ Goal: Resolve critical UX defects reported in Windows EXE distribution regarding
 - [x] visible RDP diagnostics/reconnect state;
 - [x] invalidate ProfileStore all-list cache and clear stale filter;
 - [x] regression tests/local 662 passed 1 xfailed/Ruff;
-- [ ] publish reviewed five-file fix and confirm GitHub CI green;
+- [x] publish reviewed five-file fix and confirm GitHub CI green (Commit: 74f05a9, Run: 29951691994, URL: https://github.com/FASTCHIP/openadmindesk/actions/runs/29951691994);
 - [ ] produce next Windows artifact/build from fixed commit;
 - [ ] manually verify saved RDP unlock, one-time cancel/error, SSH immediate visibility and restart persistence on Windows EXE.
 
@@ -357,4 +360,98 @@ Completion Criteria:
 - GitHub CI is green for the fix commit.
 
 Phase 12 is currently active; terminal feature expansion deferred.
+
+## Phase 13 - Stack Evidence And Runtime Stabilization (Planned, Not Active)
+
+### Goal
+Evidence-first stabilization RDP/SSH/terminal/CI, without speculative stack replacement.
+
+### Execution gate
+Phase 12 remains active; Phase 13 must not start automatically until Phase 12 completes or human explicitly reprioritizes.
+
+### Source
+Assessed useful subset of deleted STACK_IMPROVEMENTS draft; AUDIT_REMEDIATION_PLAN remains source of truth.
+
+### Global boundaries
+Execute exact order; one bounded pass at a time; <=3 named implementation/test files; docs and WORKLOG separate; no commit/push unless explicitly requested; no real-completion claims without matching evidence.
+
+### Factual corrections/non-goals
+- Python range `>=3.12,<3.14` already includes 3.13; do not raise minimum, only add compatibility CI later.
+- Do not fork/replace pyte before separated parser/feed/render benchmarks prove need.
+- Do not migrate Poetry->uv without measured installation/maintenance problem and approved migration plan.
+- Keep Paramiko/PySide6/cryptography/argon2/SQLite baseline.
+- SFTP separate transport remains current DECISIONS.md choice until lifecycle ownership is proven.
+- Existing SFTP/ProfileStore/VaultManager executor close contracts/tests are already done; do not redo them as generic gc-only work.
+- No arbitrary fixed SSH rate-limit task without automatic retry/abuse evidence; focus on in-flight guard, backpressure, lifecycle, redaction.
+
+### Checklist
+- [x] 13.0 Correct RDP source-of-truth and retire draft:
+  - Phase 10.3 reopened, Phase 13 recorded, STACK draft deleted; no code claims.
+
+- [ ] 13.1 FreeRDP ABI audit:
+  - Pass files max 3: `src/openadmindesk/core/rdp_client.py`, `src/openadmindesk/platform/platform_utils.py`, `tests/test_rdp_client.py`.
+  - Validate supported FreeRDP 3 version, symbols, ctypes signatures, callback lifetime, context ownership, connect/start/stop/free ordering; fail closed on mismatch.
+  - Mock symbol tests plus real library discovery/symbol evidence; no frame implementation mixed into audit.
+  - Focused checks: py_compile/ruff/pytest test_rdp_client/diff-check.
+
+- [ ] 13.2 Implement frame pipeline in bounded passes:
+  - Pass A max3: `src/openadmindesk/core/rdp_client.py`, `src/openadmindesk/ui/rdp_display.py`, `tests/test_rdp_client.py` — native framebuffer ownership/copy, detached QImage, worker->main signal, callback lifetime, bounded frame delivery.
+  - Pass B max3: `src/openadmindesk/ui/rdp_display.py`, `src/openadmindesk/ui/rdp_session_tab.py`, `tests/test_rdp_display.py` — display/resize/disconnect/stale-frame behavior; preserve certificate/NLA/input/clipboard/fullscreen/CAD/error-copy/reconnect/close behaviors.
+  - Optional extra runtime UX test must be a separate <=3-file fix pass, not scope creep.
+  - Focused tests/ruff/pycompile/diff-check.
+
+- [ ] 13.3 Real manual RDP frame verification:
+  - Separate evidence/docs pass; use `docs/GUI_SMOKE_EVIDENCE.md`, WORKLOG separately.
+  - Real FreeRDP 3 target checks: library load, first certificate prompt, NLA success/failure, visible changing frames, keyboard/mouse, resize, clipboard, disconnect/reconnect, bounded multi-minute run.
+  - No completion from mocks only; record platform/library/build/artifact and blockers.
+
+- [ ] 13.4 Fix SSH reader busy loop and outbound send, no asyncio migration:
+  - Pass A max2: `src/openadmindesk/core/ssh_terminal_backend.py`, `tests/test_ssh_terminal_tab.py` — stop event, no idle hot loop, bounded wait, deterministic disconnect/join.
+  - Pass B max3: `src/openadmindesk/core/ssh_terminal_backend.py`, `src/openadmindesk/ui/ssh_terminal_tab.py`, `tests/test_ssh_terminal_tab.py` — bounded outbound queue/writer ownership, partial sends, backpressure, reconnect/disconnect clearing; UI handlers never block on Channel.send.
+  - Preserve host-key TOFU, vault auth prompting, macro/MultiExec/monitor/SFTP actions and all unrelated UI behavior.
+  - Targeted pytest/ruff/pycompile/diff-check; add full headless pytest after both passes.
+
+- [ ] 13.5 Add terminal benchmarks before any pyte decision:
+  - Measurement-only pass: new `tests/bench_terminal_throughput.py` and existing `tests/test_terminal_widget.py`; do not modify production in measurement pass.
+  - Separate measures: pure pyte parse, TerminalWidget.feed, paint/render, scrollback growth, memory; workloads 1MiB plain, ANSI, cursor movement, long lines, small vs large chunks.
+  - Initially non-gating; record hardware/Python/PySide/pyte/chunk sizes and baseline.
+  - Optimization passes generated only from evidence, each <=3 files. Candidate own-code areas may include deque scrollback, batching update/feed, cached fonts/style runs, but no preselected solution.
+  - pyte fork/libvterm spike requires explicit ADR, compatibility corpus and measured target.
+
+- [ ] 13.6 Add Python 3.13 CI compatibility while retaining 3.12:
+  - Pass max2: `.github/workflows/ci.yml`, `tests/test_ci_workflow.py`.
+  - Test matrix 3.12/3.13; keep `requires-python >=3.12,<3.14`; release/build stays 3.12 until separately approved.
+  - Require lock check, Ruff, full headless pytest, imports on both; actual GitHub green evidence. No dependency-manager migration.
+
+- [ ] 13.7 Security logging audit in multiple bounded passes:
+  - Split by SSH/SFTP, vault/profile, RDP/VNC/tunnels; never >3 implementation/test files in one pass.
+  - Sentinel secret caplog tests; no password/passphrase/private key/profile serialization; separate user-safe message and diagnostic detail; structured logging.
+  - Do not add rate limiting unless automatic retry/abuse evidence is first documented.
+  - Targeted tests, Ruff, pycompile, diff-check; full security scan only where matching scope.
+
+- [ ] 13.8 Thread/Qt lifecycle tests:
+  - Pass A max3: `src/openadmindesk/core/ssh_terminal_backend.py`, `src/openadmindesk/ui/ssh_terminal_tab.py`, `tests/test_ssh_terminal_tab.py`.
+  - Pass B max3: `src/openadmindesk/core/rdp_client.py`, `src/openadmindesk/ui/rdp_session_tab.py`, `tests/test_rdp_client.py` (display tests separate if needed).
+  - SFTP UI lifecycle only if evidence shows gap; executor lifecycle already covered and should not be reimplemented.
+  - Use QSignalSpy/thread completion/destroyed/weakref after deferred deletes/bounded timeout; gc.collect alone insufficient.
+  - Repeated connect/disconnect/close; no live worker/QThread/callback after owner destruction.
+
+- [ ] 13.9 Consider shared SSH/SFTP transport only after 13.4 and 13.8 PASS:
+  - First separate ADR docs pass in docs/DECISIONS.md; no code before approval.
+  - Design owner/lease abstraction, not exposed raw Transport: ownership, refcount/leases, terminal-first and SFTP-first close, reconnect invalidation, host-key, vault auto-lock, transfer cancellation, simultaneous failure.
+  - Prototype pass max2: new `src/openadmindesk/core/shared_ssh_session.py` + new `tests/test_shared_ssh_session.py`.
+  - Integration passes bounded <=3; UI wiring separate; fallback separate SFTP session retained until full evidence/manual smoke.
+  - May be rejected after ADR/spike with recorded reasons.
+
+### Explicit hold
+
+- No pyte fork/replacement or Poetry->uv migration without benchmark/problem evidence, compatibility/migration plan, rollback and explicit human approval.
+
+### Verification matrix and completion criteria
+Every item has targeted checks above; code items require Ruff/pycompile/diff-check and targeted pytest; CI/lifecycle major gates require full headless pytest.
+RDP completion requires real smoke evidence, not mocks.
+Python 3.13 requires actual GitHub green for both matrix versions.
+Shared transport requires ADR + lifecycle tests + fallback.
+Phase complete only all accepted checkboxes closed, docs/WORKLOG updated in separate passes, no open CRITICAL/HIGH/MEDIUM reviewer findings, full relevant verification recorded.
+Explicit remaining exclusions: pyte/uv not silently activated.
 

@@ -3970,3 +3970,49 @@ The existing copyable RDP pass (3 files: `rdp_session_tab.py`, `test_connection_
 - Independent reviewer verdict: **PASS**; no confirmed CRITICAL, HIGH, or MEDIUM findings.
 - No commit or push was performed.
 
+## 2026-07-22 (Stack recommendations transfer and shutdown checkpoint)
+
+### Baseline
+- HEAD 74f05a9 `fix: improve profile rename and RDP error UX`, branch main...origin/main.
+- Initial tracked tree clean; only untracked docs/STACK_IMPROVEMENTS.md.
+
+### Documentation result
+- `docs/AUDIT_REMEDIATION_PLAN.md`: Phase10.3 changed to unchecked because `_on_frame_update()` remains stub; status correction says Phase10 incomplete until ABI/frame/manual/docs gates.
+- Added `Phase 13 - Stack Evidence And Runtime Stabilization (Planned, Not Active)`.
+- Accepted order: source truth; ABI audit; frame pipeline; real manual RDP; SSH busy-loop/outbound; terminal benchmarks; Python3.13 compatibility CI retaining 3.12; security logging; thread/Qt lifecycle; shared SSH/SFTP only after gates.
+- Explicit holds: no pyte fork/replacement or Poetry->uv without evidence and approval.
+- Phase12 remains active; Phase13 must not start automatically absent Phase12 completion or explicit human reprioritization.
+- `docs/STACK_IMPROVEMENTS.md` removed only after useful content transferred; it was untracked, so no tracked deletion appears.
+
+### Verification
+- `git diff --check -- docs/AUDIT_REMEDIATION_PLAN.md` exit 0.
+- Full diff inspected; Phase13 checkboxes/explicit paths/boundaries <=3 confirmed.
+- `git status --short` before WORKLOG append showed only `M docs/AUDIT_REMEDIATION_PLAN.md`.
+- Documentation-only: no code tests/build/Ruff run or claimed.
+
+### Safe restart / shutdown checkpoint
+- Saved tracked changes after this entry should be only docs/AUDIT_REMEDIATION_PLAN.md and docs/WORKLOG.md; staged none.
+- No commit/push requested or performed.
+- After restart: read this entry and Phase13 in AUDIT_REMEDIATION_PLAN; inspect git status/diff; do not blindly start Phase13. Confirm whether to finish active Phase12 or explicitly reprioritize.
+- If Phase13 explicitly activated, first pending bounded item is 13.1 FreeRDP ABI audit with exact files rdp_client.py/platform_utils.py/test_rdp_client.py; no frame implementation mixed into that pass.
+- No implementation work is in progress; safe to shut down after final coordinator status/diff inspection.
+
+## 2026-07-22 (Phase 12 publication and CI evidence sync)
+
+### Plan
+- Record the already completed publication/green-CI fact without changing code, build claims, or manual verification claims.
+- Keep Phase 12 active and Phase 13 planned/not active.
+
+### Result and evidence
+- `74f05a9` / `74f05a969be68e760a91ab9dbdcacc76b3ebbcd5` is published at `origin/main`.
+- GitHub Actions CI run `29951691994` completed successfully: https://github.com/FASTCHIP/openadmindesk/actions/runs/29951691994
+- Overall documentation sync files are `docs/AUDIT_REMEDIATION_PLAN.md` and `docs/WORKLOG.md`; this recovery pass changed only `docs/WORKLOG.md`.
+
+### Verification
+- Documentation-only pass; no tests, builds, formatters, installers, generators, or manual GUI checks were run or claimed.
+
+### Remaining blockers
+- A new Windows artifact/build from fixed commit `74f05a9` is not verified.
+- Manual Windows EXE checks for saved RDP unlock, one-time cancel/error, SSH immediate visibility, and restart persistence remain unverified.
+- Phase 12 remains active; Phase 13 remains planned/not active.
+
