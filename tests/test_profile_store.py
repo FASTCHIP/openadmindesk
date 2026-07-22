@@ -521,3 +521,121 @@ def test_profile_store_nla_default_true(tmp_path) -> None:
     assert loaded.rdp_nla is True
     assert loaded.rdp_domain == ""
 
+def test_profile_store_rename_profile_success(tmp_path) -> None:
+    """Test successful profile rename including cache priming."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        # Save Old profile
+        old_name = "Old Profile"
+        new_name = "New Profile"
+        profile = Profile(name=old_name, host="old.example.com", port=22, username="user")
+        store.save_profile(profile)
+
+        # Prime caches
+        store.load_profile(old_name)
+        store.load_all_profiles()
+
+        # Rename
+        success = store.rename_profile(old_name, new_name)
+        assert success is True
+
+        # Verify Old is gone, New is present and retains fields
+        assert store.load_profile(old_name) is None
+        new_profile = store.load_profile(new_name)
+        assert new_profile is not None
+        assert new_profile.host == "old.example.com"
+        assert new_profile.username == "user"
+
+        # Verify all list only contains New
+        all_profiles = store.load_all_profiles()
+        assert len(all_profiles) == 1
+        assert all_profiles[0].name == new_name
+    finally:
+        store.close()
+
+def test_profile_store_rename_profile_conflict(tmp_path) -> None:
+    """Test rename failure when target name already exists."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        # Save Old and Existing
+        old_name = "Old Profile"
+        existing_name = "Existing Profile"
+        store.save_profile(Profile(name=old_name, host="old.example.com", port=22, username="user"))
+        store.save_profile(Profile(name=existing_name, host="existing.example.com", port=22, username="user"))
+
+        # Rename Old -> Existing (should fail)
+        success = store.rename_profile(old_name, existing_name)
+        assert success is False
+
+        # Verify both unchanged
+        assert store.load_profile(old_name) is not None
+        assert store.load_profile(existing_name) is not None
+        assert len(store.load_all_profiles()) == 2
+    finally:
+        store.close()
+
+def test_profile_store_rename_profile_missing(tmp_path) -> None:
+    """Test rename failure when source profile is missing."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        # Rename Missing -> New
+        success = store.rename_profile("Missing", "New")
+        assert success is False
+        assert store.load_profile("New") is None
+    finally:
+        store.close()
+
+def test_profile_store_rename_profile_async(tmp_path) -> None:
+    """Test asynchronous profile rename."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        old_name = "AsyncOld"
+        new_name = "AsyncNew"
+        store.save_profile(Profile(name=old_name, host="async.example.com", port=22, username="user"))
+
+        # Async rename
+        success = asyncio.run(store.rename_profile_async(old_name, new_name))
+        assert success is True
+
+        # Verify
+        assert store.load_profile(old_name) is None
+        assert store.load_profile(new_name) is not None
+    finally:
+        store.close()
+
+def test_profile_store_rename_profile_same_name(tmp_path) -> None:
+    """Test renaming a profile to its own name."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        name = "Same Name"
+        store.save_profile(Profile(name=name, host="same.example.com", port=22, username="user"))
+
+        # Rename to same name (should return True and not mutate)
+        success = store.rename_profile(name, name)
+        assert success is True
+        assert store.load_profile(name) is not None
+
+        # Rename missing to same name (should return False)
+        success_missing = store.rename_profile("Missing", "Missing")
+        assert success_missing is False
+    finally:
+        store.close()
+
+
+def test_profile_store_rename_profile_empty_old_name(tmp_path) -> None:
+    """Test rename failure when old_name is empty."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        assert store.rename_profile("", "New") is False
+    finally:
+        store.close()
+
+
+def test_profile_store_rename_profile_empty_new_name(tmp_path) -> None:
+    """Test rename failure when new_name is empty."""
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    try:
+        assert store.rename_profile("Old", "") is False
+    finally:
+        store.close()
+

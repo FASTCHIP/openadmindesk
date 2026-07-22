@@ -3742,3 +3742,58 @@ UX6, ProfileStore17, full662 passed/1 xfailed, Ruff/pycompile/lock/diff-check PA
 ### Remaining
 Windows EXE manual retest, publish/CI/new Windows artifact pending; no commit/push for current fixes.
 
+---
+
+## 2026-07-22 (Documentation-only: two completed bounded passes)
+
+### Plan/Scope
+
+This entry is a documentation-only pass recording two already completed bounded implementation passes. No code, tests, configuration, audit plan, or other files were changed.
+
+### Pass 1: ProfileStore rename API
+
+**Named files:**
+- `src/openadmindesk/core/profile_store.py` (+37 lines, rename implementation)
+- `tests/test_profile_store.py` (+118 lines, rename tests)
+
+**Semantics covered:** success rename, conflict (target already exists), missing source, source equals target (no-op), empty names rejection, cache eviction after rename, async wrapper through the existing executor boundary.
+
+**Verification evidence:**
+| Command | Exit | Result |
+|---------|------|--------|
+| `poetry run pytest tests/test_profile_store.py -q` | 0 | 24 passed |
+| `poetry run ruff check src/openadmindesk/core/profile_store.py tests/test_profile_store.py` | 0 | All checks passed |
+| `git diff --check` (both files) | 0 | Clean |
+
+**Reviewer verdict:** PASS (independent review, no CRITICAL/HIGH/MEDIUM findings).
+
+### Pass 2: Packaged FreeRDP library loading
+
+**Named files:**
+- `src/openadmindesk/platform/platform_utils.py` (+21/-5, `_MEIPASS`/`APPDIR/usr/lib` search path, preserved system fallback)
+- `tools/build.py` (+1, AppRun `LD_LIBRARY_PATH` adjustment)
+- `tests/test_build_tools.py` (+92 lines, FreeRDP loading and AppRun packaging tests)
+
+**Behavior:** `find_freerdp_library()` first probes `sys._MEIPASS/<lib_name>` (PyInstaller bundle), then `$APPDIR/usr/lib/<lib_name>` (AppImage), then system default paths via `ctypes.util.find_library`. AppRun prepends `$HERE/usr/lib` to `LD_LIBRARY_PATH` so the bundled `libfreerdp-client3.so` is found at runtime. System fallback is preserved for deb/rpm installations.
+
+**Verification evidence:**
+| Command | Exit | Result |
+|---------|------|--------|
+| `poetry run pytest tests/test_build_tools.py -q` | 0 | 20 passed, 1 xfailed (pre-existing) |
+| `python3 -m py_compile src/openadmindesk/platform/platform_utils.py tools/build.py tests/test_build_tools.py` | 0 | PASS |
+| `poetry run ruff check src/openadmindesk/platform/platform_utils.py tools/build.py tests/test_build_tools.py` | 0 | All checks passed |
+| `git diff --check` (all three files) | 0 | Clean |
+
+**Reviewer verdict:** PASS (independent review, no CRITICAL/HIGH/MEDIUM findings).
+
+### Remaining risks
+
+- No real AppImage or Windows EXE build/smoke test was performed in this bounded pass. The packaging verification was limited to unit tests and syntax/lint checks.
+- The current build script (`tools/build.py`) still emits a warning if `libfreerdp-client3.so` is not found on the build host. The AppImage bundling step copies the library only when present.
+- `LD_LIBRARY_PATH` adjustment in AppRun has been tested only at the unit level, not with a full AppImage build and runtime execution.
+- No commit or push was performed for these two passes; they remain unstaged changes awaiting final review and manual commit.
+
+### Changed files (this entry only)
+
+- `docs/WORKLOG.md` — appended this entry
+

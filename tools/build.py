@@ -249,6 +249,7 @@ def build_appimage():
     apprun_content = """#!/bin/sh
 HERE=$(dirname "$(readlink -f "$0")")
 export PYTHONPATH="$HERE/usr:$PYTHONPATH"
+export LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"
 exec python3 -m openadmindesk.app "$@"
 """
     apprun_path = Path(appdir) / "AppRun"

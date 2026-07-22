@@ -144,3 +144,95 @@ def test_appimage_appdir_has_required_root_files() -> None:
 def test_appimage_build_removes_staging_appdir() -> None:
     text = Path("tools/build.py").read_text()
     assert "shutil.rmtree(appdir, ignore_errors=True)" in text
+
+
+# --- Packaged-library candidate search tests for find_freerdp_library ---
+
+
+def test_platform_utils_appdir_candidate_returned_before_system_fallback(
+    monkeypatch, tmp_path
+) -> None:
+    """AppImage APPDIR/usr/lib candidate is returned before system fallback."""
+    lib_dir = tmp_path / "usr" / "lib"
+    lib_dir.mkdir(parents=True)
+    lib_file = lib_dir / "libfreerdp-client3.so"
+    lib_file.write_text("")
+
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.delenv("APPDIR", raising=False)
+    monkeypatch.setenv("APPDIR", str(tmp_path))
+    # Ensure _MEIPASS is not set
+    monkeypatch.setattr("sys._MEIPASS", None, raising=False)
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "pp_test1",
+        "src/openadmindesk/platform/platform_utils.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    result = mod.find_freerdp_library()
+    assert result == str(lib_file)
+
+
+def test_platform_utils_meipass_candidate_returned(
+    monkeypatch, tmp_path
+) -> None:
+    """PyInstaller sys._MEIPASS candidate is returned."""
+    candidate = tmp_path / "libfreerdp-client3.so"
+    candidate.write_text("")
+
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr("sys._MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.delenv("APPDIR", raising=False)
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "pp_test2",
+        "src/openadmindesk/platform/platform_utils.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    result = mod.find_freerdp_library()
+    assert result == str(candidate)
+
+
+def test_platform_utils_nonexistent_packaged_candidates_fall_back_to_mock_system(
+    monkeypatch,
+) -> None:
+    """Non-existent packaged candidates do not suppress a mock system find.
+
+    Relies on the fact that no libfreerdp-client3.so exists in the repo's
+    ../bin/ directory (the bundled path), and mocks find_library to return
+    a controlled answer without depending on host FreeRDP installation.
+    """
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.delenv("APPDIR", raising=False)
+    monkeypatch.setattr("sys._MEIPASS", None, raising=False)
+
+    import ctypes.util
+    monkeypatch.setattr(ctypes.util, "find_library", lambda name: "/usr/lib/libfreerdp-client3.so")
+
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "pp_test3",
+        "src/openadmindesk/platform/platform_utils.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+
+    result = mod.find_freerdp_library()
+    assert result == "/usr/lib/libfreerdp-client3.so"
+
+
+def test_apprun_contract_includes_ld_library_path() -> None:
+    """Generated AppRun exports LD_LIBRARY_PATH and retains PYTHONPATH + launch command."""
+    text = Path("tools/build.py").read_text()
+    assert 'LD_LIBRARY_PATH="$HERE/usr/lib:$LD_LIBRARY_PATH"' in text
+    assert 'PYTHONPATH="$HERE/usr:$PYTHONPATH"' in text
+    assert 'python3 -m openadmindesk.app "$@"' in text

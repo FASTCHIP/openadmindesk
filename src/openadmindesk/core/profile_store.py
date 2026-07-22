@@ -393,6 +393,43 @@ class ProfileStore:
         """Delete a profile from the database asynchronously."""
         return await self._run_db(self._delete_profile_sync, name)
 
+    def rename_profile(self, old_name: str, new_name: str) -> bool:
+        """Rename a profile in the database."""
+        if not old_name or not new_name:
+            return False
+        if old_name == new_name:
+            return self.load_profile(old_name) is not None
+
+        try:
+            with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                if conn.execute("SELECT 1 FROM profiles WHERE name = ?", (new_name,)).fetchone():
+                    return False
+
+                cursor = conn.execute(
+                    "UPDATE profiles SET name = ?, updated_at = CURRENT_TIMESTAMP "
+                    "WHERE name = ?",
+                    (new_name, old_name)
+                )
+                if cursor.rowcount != 1:
+                    return False
+
+            self._remove_from_cache(old_name)
+            self._remove_from_cache(new_name)
+            with self._cache_lock:
+                self._all_profiles_cache = None
+                self._all_profiles_cache_time = 0
+            return True
+        except Exception as e:
+            self.logger.error(
+                f"Failed to rename profile from {old_name} to {new_name}: {e}"
+            )
+            return False
+
+    async def rename_profile_async(self, old_name: str, new_name: str) -> bool:
+        """Rename a profile in the database asynchronously."""
+        return await self._run_db(self.rename_profile, old_name, new_name)
+
     def _row_to_profile(self, row) -> Profile:
         """Convert a database row to a Profile object."""
         is_row_object = hasattr(row, 'keys')
