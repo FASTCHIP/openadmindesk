@@ -4013,6 +4013,43 @@ The existing copyable RDP pass (3 files: `rdp_session_tab.py`, `test_connection_
 
 ### Remaining blockers
 - A new Windows artifact/build from fixed commit `74f05a9` is not verified.
-- Manual Windows EXE checks for saved RDP unlock, one-time cancel/error, SSH immediate visibility, and restart persistence remain unverified.
+- Manual Windows EXE checks for saved RDP unlock, one-time cancel/error and SSH immediate visibility and restart persistence remain unverified.
 - Phase 12 remains active; Phase 13 remains planned/not active.
+
+## 2026-07-23 (Phase 12 Windows artifact evidence)
+
+### Proven facts
+- GitHub Actions run `29963235722`, workflow `Build release artifacts`, event `workflow_dispatch`, head SHA `9ae67c456703acba597aa3284c6af35aa9bb6637`, status/completion `completed`/`success`; direct parent `74f05a969be68e760a91ab9dbdcacc76b3ebbcd5` — reviewed Phase 12 fix.
+- Windows job completed/success; steps `Build check`, `Build Windows EXE`, `Smoke test`, `Stage artifacts`, `Upload artifacts` completed/success.
+- Artifact `windows-0.1.4`, ID `8546859383`, size `57269971`, `expired: false`, expiry `2026-08-05T22:35:13Z`, same head SHA, full GitHub API archive digest `sha256:0d8f04c2a1434af76d2f86c1d65abdfff23ff7adbd5d636bf9cb54a798658daf`.
+- `release` job skipped; no new GitHub Release claim.
+- Evidence proves next Windows build/artifact was produced after the reviewed Phase 12 fix, but not manual Windows UX.
+- Public API metadata/jobs/artifact presence verified. Authenticated `gh` and archive download unavailable here; archive not downloaded; internal `OpenAdminDesk-0.1.4-windows-x86_64.exe` and `SHA256SUMS-windows` not independently inspected/compared. API digest is uploaded archive digest, not independently verified EXE checksum.
+- Manual pending: saved RDP unlock, one-time cancel/error, SSH immediate visibility, restart persistence. Phase 12 active; Phase 13 planned/not active.
+
+---
+## 2026-07-29 (Migration tool BLE001 boundary)
+### Implementation
+- `tools/migrate_profile_secrets.py`: removed blind `except Exception`; unexpected non-`RuntimeError` migration exceptions now propagate after existing `finally: vault.lock()`; existing `RuntimeError` stderr/return-1 behavior remains.
+- `tests/test_profile_secret_migration.py`: added focused coverage — a monkeypatched unexpected `ValueError` propagates and test observes exactly one `VaultManager.lock()` call.
+### Verification evidence
+| Command | Exit | Result |
+|---------|------|--------|
+| `python3 -m py_compile tools/migrate_profile_secrets.py tests/test_profile_secret_migration.py` | 0 | PASS |
+| `ruff check tools/migrate_profile_secrets.py tests/test_profile_secret_migration.py` | 0 | PASS |
+| `python3 -m pytest tests/test_profile_secret_migration.py -q` | 0 | 51 passed in 3.96s |
+| `git diff --check -- tools/migrate_profile_secrets.py tests/test_profile_secret_migration.py` | 0 | Clean |
+### Remaining limitation
+This narrow pass does not remediate the separately reported full `ruff check .` debt of 668 errors. No full-suite or full-Ruff success is claimed.
+
+---
+## 2026-07-29 (Windows FreeRDP and SSH terminal responsiveness)
+### Result
+- `tools/build.py` now fails before PyInstaller when neither supported Windows `freerdp-client3.dll` candidate exists; it does not claim a new DLL-containing EXE was produced.
+- `SSHTerminalBackend` now uses stop-aware bounded reader waiting, bounded disconnect join, and a 256-chunk queue so UI `send()` only enqueues; reader owns partial `Channel.send` retries and clears outbound state on reconnect/disconnect.
+### Verification
+- `python3 -m py_compile` and targeted `ruff check` for changed Windows/SSH files: exit 0; SSH evidence was run manually in `/ai/openadmindesk`.
+- Focused tests: `tests/test_windows_build.py` 8 passed; `tests/test_ssh_terminal_tab.py` 18 passed; target diff-check exit 0; independent code reviews returned PASS.
+### Remaining limitation
+No new Windows artifact containing this fail-closed change or real SSH session smoke was run. Phase 13.4 still needs full headless pytest; the separately reported full `ruff check .` debt of 668 errors is not remediated.
 

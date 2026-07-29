@@ -303,6 +303,16 @@ def build_windows_exe() -> None:
             r"C:\Program Files\FreeRDP\bin\*.dll;.",
         ])
 
+    # Require freerdp-client3.dll before building
+    freerdp_system32 = Path(r"C:\Windows\System32\freerdp-client3.dll")
+    freerdp_program_files = Path(r"C:\Program Files\FreeRDP\bin\freerdp-client3.dll")
+    if not freerdp_system32.exists() and not freerdp_program_files.exists():
+        raise RuntimeError(
+            "Windows build requires FreeRDP 3 runtime DLLs: "
+            "freerdp-client3.dll not found in C:\\Windows\\System32 or "
+            "C:\\Program Files\\FreeRDP\\bin"
+        )
+
     pyinstaller_args.append("run.py")
     run_command(pyinstaller_args)
 

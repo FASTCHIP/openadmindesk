@@ -25,6 +25,7 @@ from openadmindesk.core.vault_manager import VaultManager
 
 # Make tools directory importable for CLI tests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+import migrate_profile_secrets  # noqa: E402
 from migrate_profile_secrets import main  # noqa: E402
 
 
@@ -725,6 +726,55 @@ def test_cli_migration_conflict(tmp_path, capsys, monkeypatch) -> None:
     # Backups remain on disk (created before conflict detection)
     assert (tmp_path / "backups").exists()
     assert len(list((tmp_path / "backups").iterdir())) >= 2
+
+
+def test_cli_migration_unexpected_exception_propagates(
+    tmp_path, monkeypatch
+) -> None:
+    """Unexpected non-RuntimeError from migrate_plaintext_profile_secrets
+    propagates after vault.lock(); no generic catch-all suppression."""
+    vault_path = str(tmp_path / "vault.json")
+    vault = VaultManager(vault_path)
+    assert vault.setup_master_password("master-pass")
+    vault.lock()
+
+    store = ProfileStore(str(tmp_path / "profiles.db"))
+    store.save_profile(Profile(name="Test", host="example.com", username="admin"))
+
+    monkeypatch.setenv("OPENADMINDESK_VAULT_PASSWORD", "master-pass")
+
+    def _raise_value_error(*args, **kwargs):
+        raise ValueError("unexpected migration defect")
+
+    monkeypatch.setattr(
+        migrate_profile_secrets,
+        "migrate_plaintext_profile_secrets",
+        _raise_value_error,
+    )
+
+    # Prove main() calls VaultManager.lock() exactly once after the propagated
+    # exception, instead of relying on a vault reopen validity check.
+    lock_calls: list[VaultManager] = []
+    original_lock = VaultManager.lock
+
+    def _tracked_lock(self: VaultManager) -> None:
+        lock_calls.append(self)
+        original_lock(self)
+
+    monkeypatch.setattr(
+        migrate_profile_secrets.VaultManager,
+        "lock",
+        _tracked_lock,
+    )
+
+    with pytest.raises(ValueError, match="unexpected migration defect"):
+        main([
+            "--db", store.db_path,
+            "--vault", vault_path,
+            "--confirm-cleartext-removal",
+        ])
+
+    assert len(lock_calls) == 1
 
 
 # ── Phase 9.6b: Secure SQLite+vault backup primitives ────────────────────────

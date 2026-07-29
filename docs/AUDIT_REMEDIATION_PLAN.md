@@ -346,7 +346,7 @@ Goal: Resolve critical UX defects reported in Windows EXE distribution regarding
 - [x] invalidate ProfileStore all-list cache and clear stale filter;
 - [x] regression tests/local 662 passed 1 xfailed/Ruff;
 - [x] publish reviewed five-file fix and confirm GitHub CI green (Commit: 74f05a9, Run: 29951691994, URL: https://github.com/FASTCHIP/openadmindesk/actions/runs/29951691994);
-- [ ] produce next Windows artifact/build from fixed commit;
+- [x] produce next Windows artifact/build from fixed commit: GitHub Actions workflow_dispatch run 29963235722 succeeded for HEAD 9ae67c4 (direct parent reviewed Phase 12 fix 74f05a9); artifact windows-0.1.4 (ID 8546859383) uploaded.
 - [ ] manually verify saved RDP unlock, one-time cancel/error, SSH immediate visibility and restart persistence on Windows EXE.
 
 Verification:

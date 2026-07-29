@@ -186,10 +186,6 @@ def main(argv: list[str] | None = None) -> int:
         # exc message may contain profile names and backup paths but never secrets
         print(f"Error: {exc}", file=sys.stderr)
         return 1
-    except Exception as exc:
-        # Catch-all for unexpected errors — generic message, no secrets
-        print(f"Unexpected error during migration: {exc}", file=sys.stderr)
-        return 1
     finally:
         vault.lock()
 

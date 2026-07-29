@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import queue
 import re
 import socket
 import threading
@@ -42,6 +43,9 @@ class SSHTerminalBackend(TerminalBackend):
         self._channel: Optional[paramiko.Channel] = None
         self._connected = False
         self._reader_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._outbound_queue: queue.Queue[bytes] = queue.Queue(maxsize=256)
+        self._pending_outbound: bytes = b""
         self._on_output: Optional[Callable[[bytes], None]] = None
         self._last_error: str = ""  # callback(bytes)
 
@@ -123,6 +127,9 @@ class SSHTerminalBackend(TerminalBackend):
             self._connected = True
 
             # Start background reader
+            self._stop_event.clear()
+            self._outbound_queue = queue.Queue(maxsize=256)
+            self._pending_outbound = b""
             self._reader_thread = threading.Thread(
                 target=self._read_loop, daemon=True
             )
@@ -149,23 +156,68 @@ class SSHTerminalBackend(TerminalBackend):
 
     def _read_loop(self) -> None:
         """Continuously read from the SSH channel in a background thread."""
-        while self._connected and self._channel:
+        while self._connected and self._channel and not self._stop_event.is_set():
             try:
+                made_progress = False
+                if self._flush_outbound():
+                    made_progress = True
                 if self._channel.recv_ready():
                     data = self._channel.recv(4096)
-                    if data and self._on_output:
+                    if data and self._on_output and not self._stop_event.is_set():
                         self._on_output(data)
-                else:
+                    made_progress = True
+                if not made_progress:
                     if self._channel.exit_status_ready():
                         break
+                    self._stop_event.wait(timeout=0.1)
             except (SSHException, socket.error, OSError):
                 break
             except Exception as e:
                 logger.debug(f"SSH read loop: {e}")
 
+    def _flush_outbound(self) -> bool:
+        """Attempt one send of pending outbound data (reader thread only).
+
+        Returns True if any progress was made (data sent), False otherwise.
+        """
+        channel = self._channel
+        if not channel:
+            return False
+        pending = self._pending_outbound
+        if not pending:
+            try:
+                pending = self._outbound_queue.get_nowait()
+            except queue.Empty:
+                return False
+        if not channel.send_ready():
+            self._pending_outbound = pending
+            return False
+        try:
+            n = channel.send(pending)
+        except (SSHException, socket.error, OSError):
+            self._pending_outbound = pending
+            return False
+        if n > 0:
+            self._pending_outbound = pending[n:]
+            return True
+        self._pending_outbound = pending
+        return False
+
+    def _clear_outbound(self) -> None:
+        """Empty queued chunks and reset pending outbound data."""
+        while not self._outbound_queue.empty():
+            try:
+                self._outbound_queue.get_nowait()
+            except queue.Empty:
+                break
+        self._pending_outbound = b""
+
     def disconnect(self) -> None:
         """Close the SSH connection."""
         self._connected = False
+        self._stop_event.set()
+        reader = self._reader_thread
+        self._reader_thread = None
         if self._channel:
             try:
                 self._channel.close()
@@ -178,17 +230,21 @@ class SSHTerminalBackend(TerminalBackend):
             except Exception:
                 pass
             self._client = None
+        if reader is not None and reader is not threading.current_thread():
+            reader.join(timeout=0.5)
+        self._clear_outbound()
         logger.info("SSH disconnected")
 
     # ── I/O ───────────────────────────────────────────────────────────────────
 
     def send(self, data: str) -> None:
-        """Send data (keystrokes) to the remote shell."""
-        if self._connected and self._channel:
-            try:
-                self._channel.send(data.encode("utf-8"))
-            except (SSHException, socket.error) as e:
-                logger.error(f"SSH send error: {e}")
+        """Enqueue data (keystrokes) for the remote shell (nonblocking)."""
+        if not (self._connected and self._channel):
+            return
+        try:
+            self._outbound_queue.put_nowait(data.encode("utf-8"))
+        except queue.Full:
+            logger.warning("SSH outbound queue full; dropping input chunk")
 
     def write(self, data: str) -> None:
         """Alias for send() — used by TerminalBackend interface."""

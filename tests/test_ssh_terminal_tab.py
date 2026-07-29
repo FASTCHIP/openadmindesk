@@ -243,3 +243,139 @@ def test_pending_host_key_confirm_yes_trusts_and_reconnects(monkeypatch) -> None
     assert backend.trust_calls == 1
     assert not tab.trust_host_button.isEnabled()
     assert reconnects == [True]
+
+
+def test_ssh_backend_idle_reader_uses_bounded_wait(monkeypatch) -> None:
+    """Idle reader must use bounded stop-aware wait, not hot polling."""
+    from unittest.mock import MagicMock
+    from openadmindesk.core.ssh_terminal_backend import SSHTerminalBackend
+    import threading
+
+    backend = SSHTerminalBackend(_profile())
+    wait_calls: list[float] = []
+    ready = threading.Event()
+    orig_wait = backend._stop_event.wait
+
+    def tracked_wait(timeout=None):
+        wait_calls.append(timeout or 0)
+        if len(wait_calls) >= 2:
+            ready.set()
+        return orig_wait(timeout)
+
+    monkeypatch.setattr(backend._stop_event, "wait", tracked_wait)
+    fake_ch = MagicMock()
+    fake_ch.recv_ready.return_value = False
+    fake_ch.exit_status_ready.return_value = False
+    fake_ch.recv.side_effect = TimeoutError("no data")
+    backend._channel = fake_ch
+    backend._connected = True
+    backend._stop_event.clear()
+    t = threading.Thread(target=backend._read_loop, daemon=True)
+    t.start()
+    assert ready.wait(timeout=2.0), "Idle reader must call Event.wait"
+    backend._stop_event.set()
+    t.join(timeout=2.0)
+    assert not t.is_alive()
+    assert len(wait_calls) >= 2, "Idle reader must call Event.wait, not hot poll"
+    for v in wait_calls:
+        assert 0.0 < v <= 0.15, f"Wait must be short/bounded, got {v}"
+
+
+def test_ssh_backend_disconnect_stops_and_joins_reader(monkeypatch) -> None:
+    """disconnect() must set stop, join reader with timeout, clear _reader_thread."""
+    from unittest.mock import MagicMock
+    from openadmindesk.core.ssh_terminal_backend import SSHTerminalBackend
+    import threading
+
+    backend = SSHTerminalBackend(_profile())
+    fake_ch = MagicMock()
+    fake_ch.recv_ready.return_value = False
+    fake_ch.exit_status_ready.return_value = False
+    backend._channel = fake_ch
+    backend._connected = True
+    backend._stop_event.clear()
+    backend._reader_thread = threading.Thread(target=backend._read_loop, daemon=True)
+    backend._reader_thread.start()
+    reader = backend._reader_thread
+    assert reader is not None
+    assert reader.is_alive()
+    backend.disconnect()
+    assert backend._reader_thread is None, "_reader_thread must be cleared"
+    assert not backend._connected
+    assert fake_ch.close.called
+    assert not reader.is_alive(), "Reader thread must stop after disconnect"
+
+
+def test_ssh_backend_send_enqueues_without_calling_channel_send(monkeypatch) -> None:
+    """send() queues bytes without calling channel.send; not-ready preserves data."""
+    from unittest.mock import MagicMock
+    from openadmindesk.core.ssh_terminal_backend import SSHTerminalBackend
+
+    backend = SSHTerminalBackend(_profile())
+    fake_ch = MagicMock()
+    fake_ch.send_ready.return_value = False
+    backend._channel = fake_ch
+    backend._connected = True
+
+    backend.send("hello\r")
+
+    fake_ch.send.assert_not_called()
+    assert not backend._outbound_queue.empty()
+    # Call writer helper directly with send_ready=False: no send, data moved to pending
+    assert backend._flush_outbound() is False
+    assert backend._pending_outbound == b"hello\r"
+    assert backend._outbound_queue.empty()
+
+
+def test_ssh_backend_reader_partial_retry_synchronous(monkeypatch) -> None:
+    """Reader calls writer; partial send retries suffix; no threads or sleep."""
+    from unittest.mock import MagicMock, call
+    from openadmindesk.core.ssh_terminal_backend import SSHTerminalBackend
+
+    backend = SSHTerminalBackend(_profile())
+    fake_ch = MagicMock()
+    fake_ch.recv_ready.return_value = False
+    fake_ch.exit_status_ready.return_value = False
+    fake_ch.send_ready.return_value = True
+    send_count = [0]
+
+    def send_side_effect(data):
+        send_count[0] += 1
+        if send_count[0] == 1:
+            return 3
+        backend._stop_event.set()
+        return 2
+
+    fake_ch.send.side_effect = send_side_effect
+    backend._channel = fake_ch
+    backend._connected = True
+    backend._stop_event.clear()
+
+    backend.send("ABCDE")  # enqueue 5 bytes
+
+    # Run _read_loop synchronously (no thread, no sleep)
+    backend._read_loop()
+
+    assert fake_ch.send.call_count == 2
+    assert fake_ch.send.call_args_list[0] == call(b"ABCDE")
+    assert fake_ch.send.call_args_list[1] == call(b"DE")
+
+
+def test_ssh_backend_disconnect_clears_outbound_state(monkeypatch) -> None:
+    """disconnect() clears queued and pending outbound data."""
+    from unittest.mock import MagicMock
+    from openadmindesk.core.ssh_terminal_backend import SSHTerminalBackend
+
+    backend = SSHTerminalBackend(_profile())
+    fake_ch = MagicMock()
+    backend._channel = fake_ch
+    backend._connected = True
+
+    backend.send("queued1")
+    backend.send("queued2")
+    backend._pending_outbound = b"pending"
+
+    backend.disconnect()
+
+    assert backend._outbound_queue.empty()
+    assert backend._pending_outbound == b""

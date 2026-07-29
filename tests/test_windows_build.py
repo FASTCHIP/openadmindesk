@@ -82,8 +82,16 @@ def test_windows_exe_builder_uses_structured_pyinstaller_command(
         artifact.write_bytes(b"MZ-preview")
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
+    _original_path_exists = build.Path.exists
+
+    def fake_path_exists(self: Path) -> bool:
+        if str(self) == r"C:\Windows\System32\freerdp-client3.dll":
+            return True
+        return _original_path_exists(self)
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(build.sys, "platform", "win32")
+    monkeypatch.setattr(build.Path, "exists", fake_path_exists, raising=False)
     monkeypatch.setattr(build, "run_command", fake_run_command)
 
     build.build_windows_exe()
@@ -106,6 +114,8 @@ def test_windows_exe_builder_uses_structured_pyinstaller_command(
         "openadmindesk",
         "--copy-metadata",
         "openadmindesk",
+        "--add-data",
+        r"C:\Windows\System32\freerdp-client3.dll;.",
         "run.py",
     ]
     assert commands == [expected]
@@ -127,8 +137,16 @@ def test_windows_exe_builder_requires_nonempty_artifact(
         del cwd
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
+    _original_path_exists = build.Path.exists
+
+    def fake_path_exists(self: Path) -> bool:
+        if str(self) == r"C:\Windows\System32\freerdp-client3.dll":
+            return True
+        return _original_path_exists(self)
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(build.sys, "platform", "win32")
+    monkeypatch.setattr(build.Path, "exists", fake_path_exists, raising=False)
     monkeypatch.setattr(build, "run_command", fake_run_command)
 
     with pytest.raises(
@@ -136,6 +154,27 @@ def test_windows_exe_builder_requires_nonempty_artifact(
         match=(
             "PyInstaller completed but dist/OpenAdminDesk.exe is missing or empty"
         ),
+    ):
+        build.build_windows_exe()
+
+
+def test_windows_exe_builder_fails_without_freerdp_dll(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    build = _load_build_module()
+
+    def fail_if_called(*args: object, **kwargs: object) -> None:
+        raise AssertionError("run_command called without freerdp-client3.dll")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(build.sys, "platform", "win32")
+    monkeypatch.setattr(build, "write_ico_icon", lambda *a, **k: None)
+    monkeypatch.setattr(build, "run_command", fail_if_called)
+
+    with pytest.raises(
+        RuntimeError,
+        match="freerdp-client3.dll",
     ):
         build.build_windows_exe()
 
