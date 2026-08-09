@@ -14,7 +14,7 @@ authors = [
 ]
 dependencies = [
     "PySide6>=6.7",
-    "cryptography>=42",
+    "cryptography>=50.0.0",
     "argon2-cffi>=23",
     "paramiko>=3.4",
     "pyte>=0.8.2",
