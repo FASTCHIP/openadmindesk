@@ -1174,7 +1174,7 @@ files = [
     {file = "packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e"},
     {file = "packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661"},
 ]
-markers = {main = "extra == \"dev\" or extra == \"build\""}
+markers = {main = "extra == \"build\" or extra == \"dev\""}
 
 [[package]]
 name = "paramiko"
@@ -1841,14 +1841,14 @@ markers = {main = "extra == \"dev\""}
 
 [[package]]
 name = "telnetlib3"
-version = "4.0.5"
+version = "5.0.0"
 description = "Python Telnet server and client CLI and Protocol library"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "telnetlib3-4.0.5-py3-none-any.whl", hash = "sha256:d075d8625511af54d904c2a0341c5bd15481486fe716270e7b2c54811a47ed44"},
-    {file = "telnetlib3-4.0.5.tar.gz", hash = "sha256:37f584609917a3394302cac6c2f78683add80115820c19a4ce35e0fd499f6ad6"},
+    {file = "telnetlib3-5.0.0-py3-none-any.whl", hash = "sha256:64073b9c1ce8c084d3b400cbff00e627eda53fdc67cbdb700dca5de811ecacac"},
+    {file = "telnetlib3-5.0.0.tar.gz", hash = "sha256:b5387d811a270b98698081083a7843530c44765c0a023e3cab6fe8d81f8a2c73"},
 ]
 
 [package.dependencies]
@@ -1981,4 +1981,4 @@ dev = ["PyYAML", "bandit", "mypy", "pip-audit", "pytest", "pytest-cov", "ruff"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "b6732f78449c8f41c0085db535027818b3b63cdd9d2f4d64cbe808745848d1ed"
+content-hash = "1ed79ebc7c73a77572be0609e58cb1964b8d6557eb9639435405003bb5f80a50"
