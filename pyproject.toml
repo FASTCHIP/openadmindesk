@@ -13,7 +13,7 @@ authors = [
     {name = "OpenAdminDesk Contributors"},
 ]
 dependencies = [
-    "PySide6>=6.7",
+    "PySide6>=6.11.2",
     "cryptography>=42",
     "argon2-cffi>=23",
     "paramiko>=3.4",
